@@ -40,7 +40,7 @@
               <div class="field-grid">
                 <label>Date<input id="loadingDate" type="date" required /></label>
                 <label>Shift<select id="shift" required><option value="">Select shift</option><option>DAY</option><option>NIGHT</option></select></label>
-                <label>Loading incharge<input id="incharge" list="inchargeOptions" placeholder="Enter incharge name" required /><datalist id="inchargeOptions"></datalist></label>
+                <label>Loading incharge<div class="incharge-input-group"><input id="incharge" list="inchargeOptions" placeholder="Select or add a name" required /><button class="add-incharge-button" type="button" id="addInchargeButton">＋ Add</button></div><datalist id="inchargeOptions"></datalist></label>
                 <label>Helper count<input id="helperCount" type="number" min="0" step="1" inputmode="numeric" placeholder="0" required /></label>
               </div>
             </div>

@@ -3,15 +3,26 @@
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
   const todayISO = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
+  const DEFAULT_INCHARGES = ['AJAY', 'DILIP', 'MANTU', 'VAMSI'];
   const uid = () => crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let state;
   try { state = JSON.parse(localStorage.getItem(KEY)) || { headers: [], items: [] }; } catch { state = { headers: [], items: [] }; }
   if (!Array.isArray(state.headers) || !Array.isArray(state.items)) state = { headers: [], items: [], stageRows: [] };
   if (!Array.isArray(state.stageRows)) state.stageRows = [];
+  if (!Array.isArray(state.inchargeNames)) state.inchargeNames = [];
   const apiUrl = String(window.LOADING_API_URL || '').trim();
 
   function persist() { localStorage.setItem(KEY, JSON.stringify(state)); }
+  function inchargeNames() {
+    const all = [...DEFAULT_INCHARGES, ...state.inchargeNames, ...state.headers.map(h => h.incharge).filter(Boolean)];
+    const unique = new Map();
+    all.forEach(name => { const clean = String(name || '').trim(); if (clean && clean.toUpperCase() !== 'AJEET' && !unique.has(clean.toUpperCase())) unique.set(clean.toUpperCase(), clean.toUpperCase()); });
+    return [...unique.values()].sort((a,b) => a.localeCompare(b));
+  }
+  function refreshInchargeOptions() {
+    $('#inchargeOptions').innerHTML = inchargeNames().map(name => `<option value="${escapeHtml(name)}"></option>`).join('');
+  }
   function setStorageStatus(title, detail) {
     const note = $('#storageNote');
     if (note) note.innerHTML = `<span>ⓘ</span><div><b>${escapeHtml(title)}</b><small>${escapeHtml(detail)}</small></div>`;
@@ -36,8 +47,10 @@
     setStorageStatus('Connecting to Google Sheet…', 'Loading LOADING_HEADER and LOADING_ITEMS.');
     try {
       const data = await loadSheetData();
-      state = { headers: data.headers || [], items: data.items || [], stageRows: data.stageRows || [] };
+      const savedNames = state.inchargeNames || [];
+      state = { headers: data.headers || [], items: data.items || [], stageRows: data.stageRows || [], inchargeNames: savedNames };
       persist(); renderHome();
+      refreshInchargeOptions();
       setStorageStatus('Connected to Google Sheet.', 'Loading entries sync through the source sheet across authorized devices.');
     } catch (error) {
       setStorageStatus('Google Sheet sync is unavailable.', `${error.message} Entries currently stay in this browser.`);
@@ -85,8 +98,7 @@
   function renumberRows() { $$('.vehicle-row-head strong').forEach((el, i) => el.textContent = `Vehicle ${i + 1}`); }
   function openNew() {
     $('#loadingForm').reset(); $('#loadingDate').value = todayISO(); $('#vehicleRows').replaceChildren(); addVehicleRow();
-    const names = [...new Set(state.headers.map(h => h.incharge).filter(Boolean))].sort();
-    $('#inchargeOptions').innerHTML = names.map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
+    refreshInchargeOptions();
     navigate('new');
   }
   function allRows() {
@@ -168,21 +180,31 @@
         await fetch(apiUrl, { method: 'POST', mode: 'no-cors', credentials: 'include', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify({ action: 'save', header, items }) });
         const remote = await loadSheetData();
         if (!remote.headers.some(row => row.id === id)) throw new Error('The new entry was not found in the sheet after saving.');
-        state = { headers: remote.headers || [], items: remote.items || [], stageRows: remote.stageRows || [] };
+        state = { headers: remote.headers || [], items: remote.items || [], stageRows: remote.stageRows || [], inchargeNames: [...new Set([...(state.inchargeNames || []), incharge])] };
         persist(); renderHome();
+        refreshInchargeOptions();
         setStorageStatus('Connected to Google Sheet.', 'Loading entries sync through the source sheet across authorized devices.');
         navigate('home'); showToast('Loading entry saved to the Google Sheet.');
       } catch (error) {
-        state.headers.push(header); state.items.push(...items); persist(); renderHome();
+        state.headers.push(header); state.items.push(...items); state.inchargeNames = [...new Set([...(state.inchargeNames || []), incharge])]; persist(); renderHome();
         setStorageStatus('Google Sheet save could not be confirmed.', `${error.message} This entry is saved only in this browser. Download a backup and check the connection.`);
         navigate('home'); showToast('Saved on this device only. Google Sheet did not confirm the entry.');
       } finally { saveButton.disabled = false; }
       return;
     }
-    state.headers.push(header); state.items.push(...items); persist(); navigate('home'); showToast('Loading entry saved on this device.');
+    state.headers.push(header); state.items.push(...items); state.inchargeNames = [...new Set([...(state.inchargeNames || []), incharge])]; persist(); navigate('home'); showToast('Loading entry saved on this device.');
     saveButton.disabled = false;
   }
   $('#newLoadingButton').addEventListener('click', openNew);
+  $('#addInchargeButton').addEventListener('click', () => {
+    const entered = prompt('Naye loading incharge ka naam likhen:');
+    const name = String(entered || '').trim().toUpperCase();
+    if (!name) return;
+    if (name === 'AJEET') return showToast('AJAY select karein.');
+    if (!inchargeNames().includes(name)) state.inchargeNames.push(name);
+    persist(); refreshInchargeOptions(); $('#incharge').value = name;
+    showToast('Incharge added. It will sync to other devices after a loading entry is saved to the Sheet.');
+  });
   $('#addVehicleButton').addEventListener('click', () => addVehicleRow());
   $('#loadingForm').addEventListener('submit', saveForm);
   $$('[data-view]').forEach(el => el.addEventListener('click', () => { const view = el.dataset.view; if (view === 'new') openNew(); else navigate(view); }));
@@ -207,7 +229,7 @@
       if (!Array.isArray(imported.headers) || !Array.isArray(imported.items) || imported.headers.some(h => !h.id || !h.date || !h.shift) || imported.items.some(i => !i.id || !i.loadingId || !i.vehicleNo)) throw new Error('The file does not have the expected loading log format.');
       const replace = confirm(`Replace the ${state.items.length} records saved in this browser with ${imported.items.length} records from the backup?`);
       if (!replace) return;
-      state = { headers: imported.headers, items: imported.items, stageRows: imported.stageRows || [] }; persist(); renderHome(); $('#backupStatus').textContent = 'Backup restored.'; showToast('Backup restored successfully.');
+      state = { headers: imported.headers, items: imported.items, stageRows: imported.stageRows || [], inchargeNames: imported.inchargeNames || [] }; persist(); renderHome(); $('#backupStatus').textContent = 'Backup restored.'; showToast('Backup restored successfully.');
     } catch (error) { $('#backupStatus').textContent = error.message || 'Could not read backup.'; }
     event.target.value = '';
   });
