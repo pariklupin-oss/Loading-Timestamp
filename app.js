@@ -13,8 +13,40 @@
   if (!Array.isArray(state.stageRows)) state.stageRows = [];
   if (!Array.isArray(state.inchargeNames)) state.inchargeNames = [];
   const apiUrl = String(window.LOADING_API_URL || '').trim();
+  state.items = state.items.map(normalizeItem);
 
   function persist() { localStorage.setItem(KEY, JSON.stringify(state)); }
+  function time24(value) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      const minute = Math.round(((value % 1 + 1) % 1) * 1440) % 1440;
+      return `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
+    }
+    const match = String(value ?? '').trim().match(/(?:^|[ T])(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$/);
+    if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) return '';
+    return `${match[1].padStart(2, '0')}:${match[2]}`;
+  }
+  function normalizeItem(item) {
+    const start = time24(item.start), end = time24(item.end);
+    const duration = hoursBetween(start, end);
+    return { ...item, start, end, totalHours: duration === null ? item.totalHours : Number(duration.toFixed(2)) };
+  }
+  function adoptSheet(remote, names = state.inchargeNames || []) {
+    // Keep a recovery copy before the first connector replaces browser data.
+    if (!localStorage.getItem(KEY + '.before-sheet-sync')) localStorage.setItem(KEY + '.before-sheet-sync', JSON.stringify(state));
+    const headers = new Map((remote.headers || []).map(h => [h.id, { ...h, localOnly: false }]));
+    const items = new Map((remote.items || []).map(i => [i.id, normalizeItem(i)]));
+    for (const h of state.headers) if (!headers.has(h.id)) headers.set(h.id, { ...h, localOnly: true });
+    for (const i of state.items) if (!items.has(i.id)) {
+      items.set(i.id, normalizeItem(i));
+      if (headers.has(i.loadingId)) headers.set(i.loadingId, { ...headers.get(i.loadingId), localOnly: true });
+    }
+    state = { headers: [...headers.values()], items: [...items.values()], stageRows: remote.stageRows || [], inchargeNames: names };
+  }
+  function sheetStatus() {
+    const pending = state.headers.filter(h => h.localOnly).length;
+    setStorageStatus('Connected to Google Sheet.', pending ? `${pending} earlier shift entries remain on this device only. Download Backup before moving devices; these entries are not yet in the Sheet.` : 'Loading entries sync through the source sheet across authorized devices.');
+  }
+
   function inchargeNames() {
     const all = [...DEFAULT_INCHARGES, ...state.inchargeNames, ...state.headers.map(h => h.incharge).filter(Boolean)];
     const unique = new Map();
@@ -49,15 +81,16 @@
     try {
       const data = await loadSheetData();
       const savedNames = state.inchargeNames || [];
-      state = { headers: data.headers || [], items: data.items || [], stageRows: data.stageRows || [], inchargeNames: savedNames };
+      adoptSheet(data, savedNames);
       persist(); renderHome();
       refreshInchargeOptions();
-      setStorageStatus('Connected to Google Sheet.', 'Loading entries sync through the source sheet across authorized devices.');
+      sheetStatus();
     } catch (error) {
       setStorageStatus('Google Sheet sync is unavailable.', `${error.message} Entries currently stay in this browser.`);
     }
   }
   function hoursBetween(start, end) {
+    start = time24(start); end = time24(end);
     if (!start || !end) return null;
     const [sh, sm] = start.split(':').map(Number), [eh, em] = end.split(':').map(Number);
     let minutes = eh * 60 + em - (sh * 60 + sm);
@@ -148,7 +181,7 @@
     const rows = filteredRows();
     const hours = rows.reduce((a, r) => a + (Number(r.totalHours) || 0), 0);
     $('#reportSummary').textContent = `${rows.length} vehicle${rows.length === 1 ? '' : 's'} · ${new Set(rows.map(r => r.loadingId)).size} shift entries · ${durationText(hours)} total loading time`;
-    $('#reportRows').innerHTML = rows.map(r => `<tr><td>${fmtDate(r.header.date)}<br><span class="muted">${escapeHtml(r.header.shift)}</span></td><td>${escapeHtml(displayIncharge(r.header.incharge))}</td><td>${escapeHtml(r.customer)}</td><td>${escapeHtml(r.start)}</td><td>${escapeHtml(r.end)}</td><td>${durationText(Number(r.totalHours))}</td><td>${escapeHtml(r.vehicleNo)}</td><td>${escapeHtml(r.vehicleFeet || '—')}</td><td>${r.header.helperCount}</td><td>${escapeHtml(r.remarks || '—')}</td></tr>`).join('');
+    $('#reportRows').innerHTML = rows.map(r => `<tr><td>${fmtDate(r.header.date)}<br><span class="muted">${escapeHtml(r.header.shift)}${r.header.localOnly ? ' · DEVICE ONLY' : ''}</span></td><td>${escapeHtml(displayIncharge(r.header.incharge))}</td><td>${escapeHtml(r.customer)}</td><td>${escapeHtml(r.start)}</td><td>${escapeHtml(r.end)}</td><td>${durationText(Number(r.totalHours))}</td><td>${escapeHtml(r.vehicleNo)}</td><td>${escapeHtml(r.vehicleFeet || '—')}</td><td>${r.header.helperCount}</td><td>${escapeHtml(r.remarks || '—')}</td></tr>`).join('');
     $('#reportEmpty').classList.toggle('hidden', rows.length > 0);
     $('.table-wrap').classList.toggle('hidden', rows.length === 0);
     return rows;
@@ -196,10 +229,10 @@
         await fetch(apiUrl, { method: 'POST', mode: 'no-cors', credentials: 'include', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify({ action: 'save', header, items }) });
         const remote = await loadSheetData();
         if (!remote.headers.some(row => row.id === id)) throw new Error('The new entry was not found in the sheet after saving.');
-        state = { headers: remote.headers || [], items: remote.items || [], stageRows: remote.stageRows || [], inchargeNames: [...new Set([...(state.inchargeNames || []), incharge])] };
+        adoptSheet(remote, [...new Set([...(state.inchargeNames || []), incharge])]);
         persist(); renderHome();
         refreshInchargeOptions();
-        setStorageStatus('Connected to Google Sheet.', 'Loading entries sync through the source sheet across authorized devices.');
+        sheetStatus();
         navigate('home'); showToast('Loading entry saved to the Google Sheet.');
       } catch (error) {
         state.headers.push(header); state.items.push(...items); state.inchargeNames = [...new Set([...(state.inchargeNames || []), incharge])]; persist(); renderHome();
@@ -245,7 +278,7 @@
       if (!Array.isArray(imported.headers) || !Array.isArray(imported.items) || imported.headers.some(h => !h.id || !h.date || !h.shift) || imported.items.some(i => !i.id || !i.loadingId || !i.vehicleNo)) throw new Error('The file does not have the expected loading log format.');
       const replace = confirm(`Replace the ${state.items.length} records saved in this browser with ${imported.items.length} records from the backup?`);
       if (!replace) return;
-      state = { headers: imported.headers, items: imported.items, stageRows: imported.stageRows || [], inchargeNames: imported.inchargeNames || [] }; persist(); renderHome(); $('#backupStatus').textContent = 'Backup restored.'; showToast('Backup restored successfully.');
+      state = { headers: imported.headers, items: imported.items.map(normalizeItem), stageRows: imported.stageRows || [], inchargeNames: imported.inchargeNames || [] }; persist(); renderHome(); $('#backupStatus').textContent = 'Backup restored.'; showToast('Backup restored successfully.');
     } catch (error) { $('#backupStatus').textContent = error.message || 'Could not read backup.'; }
     event.target.value = '';
   });
