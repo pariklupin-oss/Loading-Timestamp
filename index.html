@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#102a43" />
+    <meta name="description" content="Mobile loading timestamp log for dispatch teams." />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+    <title>Loading Log | Starish Autopac</title>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#home" aria-label="Loading Log home">
+          <span class="brand-icon">SL</span>
+          <span><strong>Loading Log</strong><small>Starish Autopac</small></span>
+        </a>
+        <button class="icon-button" id="backupButton" title="Backup and restore" aria-label="Backup and restore">⇧</button>
+      </header>
+
+      <main>
+        <section class="view active" id="homeView">
+          <div class="welcome-row">
+            <div><p class="eyebrow" id="todayLabel"></p><h1>Loading overview</h1><p class="muted">Shift entries and vehicle loading times</p></div>
+            <button class="primary-button" id="newLoadingButton"><span>＋</span> New loading</button>
+          </div>
+          <div class="metric-grid" id="metrics"></div>
+          <div class="storage-note" id="storageNote"><span>ⓘ</span><div><b>Google Sheet sync is not configured.</b><small>Records are saved in this browser until the sheet connector is set up.</small></div></div>
+          <div class="section-heading"><div><h2>Recent loading entries</h2><p class="muted">Most recent shift records</p></div><button class="text-button" data-view="reports">View report</button></div>
+          <div class="record-list" id="recentList"></div>
+        </section>
+
+        <section class="view" id="newView">
+          <div class="page-heading"><button class="back-button" data-view="home">←</button><div><p class="eyebrow">SHIFT REGISTER</p><h1>New loading entry</h1></div></div>
+          <form id="loadingForm">
+            <div class="form-card">
+              <h2>Shift details</h2>
+              <div class="field-grid">
+                <label>Date<input id="loadingDate" type="date" required /></label>
+                <label>Shift<select id="shift" required><option value="">Select shift</option><option>DAY</option><option>NIGHT</option></select></label>
+                <label>Loading incharge<input id="incharge" list="inchargeOptions" placeholder="Enter incharge name" required /><datalist id="inchargeOptions"></datalist></label>
+                <label>Helper count<input id="helperCount" type="number" min="0" step="1" inputmode="numeric" placeholder="0" required /></label>
+              </div>
+            </div>
+            <div class="section-heading vehicle-heading"><div><h2>Vehicles loaded</h2><p class="muted">Add one row for each vehicle</p></div><button class="secondary-button" type="button" id="addVehicleButton">＋ Add vehicle</button></div>
+            <div id="vehicleRows"></div>
+            <div class="form-actions"><button class="secondary-button" type="button" data-view="home">Cancel</button><button class="primary-button" type="submit">Save loading entry</button></div>
+          </form>
+        </section>
+
+        <section class="view" id="reportsView">
+          <div class="page-heading"><button class="back-button" data-view="home">←</button><div><p class="eyebrow">LOADING REPORT</p><h1>All loading entries</h1></div></div>
+          <div class="filter-card">
+            <label>From<input type="date" id="filterFrom" /></label>
+            <label>To<input type="date" id="filterTo" /></label>
+            <label>Shift<select id="filterShift"><option value="">All shifts</option><option>DAY</option><option>NIGHT</option></select></label>
+            <label>Incharge<input id="filterIncharge" placeholder="All incharges" /></label>
+            <button class="secondary-button" id="clearFilters" type="button">Clear</button>
+          </div>
+          <div class="report-summary" id="reportSummary"></div>
+          <div class="table-wrap"><table><thead><tr><th>Date / Shift</th><th>Incharge</th><th>Customer</th><th>Start</th><th>End</th><th>Hours</th><th>Vehicle</th><th>Feet / type</th><th>Helpers</th><th>Remarks</th></tr></thead><tbody id="reportRows"></tbody></table></div>
+          <div class="empty-state hidden" id="reportEmpty">No records match these filters.</div>
+          <div class="export-row"><button class="secondary-button" id="csvButton" type="button">Download CSV report</button></div>
+        </section>
+
+        <section class="view" id="gapsView">
+          <div class="page-heading"><button class="back-button" data-view="home">←</button><div><p class="eyebrow">PRODUCT-WISE REPORT</p><h1>Stage time gaps</h1></div></div>
+          <div class="filter-card gap-filters">
+            <label>From<input type="date" id="gapFrom" /></label>
+            <label>To<input type="date" id="gapTo" /></label>
+            <label>Invoice / customer<input id="gapSearch" placeholder="Search invoice or customer" /></label>
+            <button class="secondary-button" id="clearGapFilters" type="button">Clear</button>
+          </div>
+          <div class="gap-report" id="gapReport">
+            <div class="print-heading"><div><span class="eyebrow">STARISH AUTOPAC PVT. LTD.</span><h2>Product-wise stage gap report</h2></div><div id="printPeriod"></div></div>
+            <div class="report-summary" id="gapSummary"></div>
+            <div class="table-wrap"><table class="gap-table"><thead><tr><th>Date</th><th>Customer Name</th><th>Item Name</th><th>Item Code</th><th>Invoice Number</th><th>OQC End</th><th class="print-hide">Loading End</th><th class="print-hide">Invoice Time</th><th class="print-hide">Gate Out Time</th><th>GAP-1<br>(Production and Loading)</th><th>GAP-2<br>(Loading and Billing)</th><th>GAP-3<br>(Billing and Gate Out)</th></tr></thead><tbody id="gapRows"></tbody></table></div>
+            <div class="empty-state hidden" id="gapEmpty">No stage time rows match these filters. Check that the STAGE_TIME tab has been synced.</div>
+          </div>
+          <div class="export-row"><button class="primary-button" id="printGapReport" type="button">Print / Save PDF</button></div>
+        </section>
+      </main>
+
+      <nav class="bottom-nav" aria-label="Main navigation">
+        <button class="nav-item selected" data-view="home"><span>⌂</span>Overview</button>
+        <button class="nav-item" data-view="reports"><span>▤</span>Reports</button>
+        <button class="nav-item" data-view="gaps"><span>◷</span>Stage gaps</button>
+        <button class="nav-item nav-add" data-view="new"><span>＋</span>New entry</button>
+      </nav>
+    </div>
+
+    <dialog id="backupDialog">
+      <form method="dialog" class="dialog-close-row"><button class="icon-button" aria-label="Close">×</button></form>
+      <p class="eyebrow">DATA BACKUP</p><h2>Backup and restore</h2>
+      <p class="muted">This version saves entries in this browser on this device. Download a backup regularly to keep a copy.</p>
+      <div class="dialog-actions"><button class="primary-button" id="downloadBackup" type="button">Download backup</button><label class="secondary-button upload-label">Restore backup<input id="restoreFile" type="file" accept="application/json,.json" hidden /></label></div>
+      <p class="small-note" id="backupStatus"></p>
+    </dialog>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="config.js"></script>
+    <script src="app.js" defer></script>
+    <script>if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('./sw.js').catch(() => {});</script>
+  </body>
+</html>
