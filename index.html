@@ -98,6 +98,12 @@
       <div class="dialog-actions"><button class="primary-button" id="downloadBackup" type="button">Download backup</button><label class="secondary-button upload-label">Restore backup<input id="restoreFile" type="file" accept="application/json,.json" hidden /></label></div>
       <p class="small-note" id="backupStatus"></p>
     </dialog>
+    <dialog id="loadingDetailsDialog" class="loading-details-dialog">
+      <form method="dialog" class="dialog-close-row"><button class="icon-button" aria-label="Close">×</button></form>
+      <p class="eyebrow">SHIFT VEHICLES</p><h2 id="loadingDetailsTitle">Loading details</h2>
+      <p class="muted" id="loadingDetailsSummary"></p>
+      <div class="loading-details-list" id="loadingDetailsList"></div>
+    </dialog>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="config.js"></script>
     <script src="app.js" defer></script>

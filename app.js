@@ -122,8 +122,23 @@
     if (!latest.length) { list.innerHTML = '<div class="empty-state">No loading entries yet. Tap <b>New loading</b> to record the first shift.</div>'; return; }
     list.innerHTML = latest.map(h => {
       const items = state.items.filter(i => i.loadingId === h.id), total = items.reduce((a, i) => a + (Number(i.totalHours) || 0), 0);
-      return `<article class="record-card"><div class="record-date">${fmtDate(h.date)}<small>${escapeHtml(h.shift)} SHIFT · ${items.length} vehicle${items.length === 1 ? '' : 's'}</small></div><div class="record-meta">${escapeHtml(displayIncharge(h.incharge))}<small>Loading incharge</small></div><div class="record-meta">${h.helperCount} helpers<small>${durationText(total)} loading time</small></div><div class="record-count">${items.length}<small>VEHICLES</small></div></article>`;
+      return `<article class="record-card" data-loading-id="${escapeHtml(h.id)}" role="button" tabindex="0" aria-label="View ${items.length} vehicles for ${escapeHtml(displayIncharge(h.incharge))}, ${fmtDate(h.date)}"><div class="record-date">${fmtDate(h.date)}<small>${escapeHtml(h.shift)} SHIFT · ${items.length} vehicle${items.length === 1 ? '' : 's'}</small></div><div class="record-meta">${escapeHtml(displayIncharge(h.incharge))}<small>Loading incharge</small></div><div class="record-meta">${h.helperCount} helpers<small>${durationText(total)} loading time</small></div><div class="record-count">${items.length}<small>VEHICLES · TAP FOR DETAILS</small></div></article>`;
     }).join('');
+    $$('.record-card[data-loading-id]', list).forEach(card => {
+      const open = () => showLoadingDetails(card.dataset.loadingId);
+      card.addEventListener('click', open);
+      card.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); } });
+    });
+  }
+  function showLoadingDetails(id) {
+    const header = state.headers.find(row => row.id === id);
+    if (!header) return;
+    const vehicles = state.items.filter(item => item.loadingId === id);
+    const total = vehicles.reduce((sum, item) => sum + (Number(item.totalHours) || 0), 0);
+    $('#loadingDetailsTitle').textContent = `${displayIncharge(header.incharge)} · ${fmtDate(header.date)}`;
+    $('#loadingDetailsSummary').textContent = `${String(header.shift || '').toUpperCase()} SHIFT · ${vehicles.length} vehicles · ${durationText(total)} total loading time`;
+    $('#loadingDetailsList').innerHTML = vehicles.length ? vehicles.map((item, index) => `<article class="loading-detail-card"><div class="loading-detail-head"><strong>Vehicle ${index + 1}</strong><b>${escapeHtml(item.vehicleNo || '—')}</b></div><div class="loading-detail-customer">${escapeHtml(item.customer || '—')}</div><div class="loading-detail-grid"><span>Type<strong>${escapeHtml(item.vehicleFeet || '—')}</strong></span><span>Loading start<strong>${escapeHtml(item.start || '—')}</strong></span><span>Loading end<strong>${escapeHtml(item.end || '—')}</strong></span><span>Duration<strong>${durationText(Number(item.totalHours))}</strong></span></div>${item.remarks ? `<p class="loading-detail-remarks">Remarks: ${escapeHtml(item.remarks)}</p>` : ''}</article>`).join('') : '<div class="empty-state">No vehicle details saved for this shift.</div>';
+    $('#loadingDetailsDialog').showModal();
   }
   function filteredRows() {
     const from = $('#filterFrom').value, to = $('#filterTo').value, shift = $('#filterShift').value, incharge = $('#filterIncharge').value.trim().toLowerCase();
