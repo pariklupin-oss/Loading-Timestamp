@@ -4,6 +4,7 @@
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
   const todayISO = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
   const DEFAULT_INCHARGES = ['AJAY', 'DILIP', 'MANTU', 'VAMSI'];
+  const displayIncharge = name => String(name ?? '').trim().toUpperCase() === 'AJEET' ? 'AJAY' : String(name ?? '').trim();
   const uid = () => crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let state;
@@ -121,18 +122,18 @@
     if (!latest.length) { list.innerHTML = '<div class="empty-state">No loading entries yet. Tap <b>New loading</b> to record the first shift.</div>'; return; }
     list.innerHTML = latest.map(h => {
       const items = state.items.filter(i => i.loadingId === h.id), total = items.reduce((a, i) => a + (Number(i.totalHours) || 0), 0);
-      return `<article class="record-card"><div class="record-date">${fmtDate(h.date)}<small>${escapeHtml(h.shift)} SHIFT · ${items.length} vehicle${items.length === 1 ? '' : 's'}</small></div><div class="record-meta">${escapeHtml(h.incharge)}<small>Loading incharge</small></div><div class="record-meta">${h.helperCount} helpers<small>${durationText(total)} loading time</small></div><div class="record-count">${items.length}<small>VEHICLES</small></div></article>`;
+      return `<article class="record-card"><div class="record-date">${fmtDate(h.date)}<small>${escapeHtml(h.shift)} SHIFT · ${items.length} vehicle${items.length === 1 ? '' : 's'}</small></div><div class="record-meta">${escapeHtml(displayIncharge(h.incharge))}<small>Loading incharge</small></div><div class="record-meta">${h.helperCount} helpers<small>${durationText(total)} loading time</small></div><div class="record-count">${items.length}<small>VEHICLES</small></div></article>`;
     }).join('');
   }
   function filteredRows() {
     const from = $('#filterFrom').value, to = $('#filterTo').value, shift = $('#filterShift').value, incharge = $('#filterIncharge').value.trim().toLowerCase();
-    return allRows().filter(r => (!from || r.header.date >= from) && (!to || r.header.date <= to) && (!shift || r.header.shift === shift) && (!incharge || r.header.incharge.toLowerCase().includes(incharge))).sort((a,b) => `${b.header.date}${b.start}`.localeCompare(`${a.header.date}${a.start}`));
+    return allRows().filter(r => (!from || r.header.date >= from) && (!to || r.header.date <= to) && (!shift || r.header.shift === shift) && (!incharge || displayIncharge(r.header.incharge).toLowerCase().includes(incharge))).sort((a,b) => `${b.header.date}${b.start}`.localeCompare(`${a.header.date}${a.start}`));
   }
   function renderReports() {
     const rows = filteredRows();
     const hours = rows.reduce((a, r) => a + (Number(r.totalHours) || 0), 0);
     $('#reportSummary').textContent = `${rows.length} vehicle${rows.length === 1 ? '' : 's'} · ${new Set(rows.map(r => r.loadingId)).size} shift entries · ${durationText(hours)} total loading time`;
-    $('#reportRows').innerHTML = rows.map(r => `<tr><td>${fmtDate(r.header.date)}<br><span class="muted">${escapeHtml(r.header.shift)}</span></td><td>${escapeHtml(r.header.incharge)}</td><td>${escapeHtml(r.customer)}</td><td>${escapeHtml(r.start)}</td><td>${escapeHtml(r.end)}</td><td>${durationText(Number(r.totalHours))}</td><td>${escapeHtml(r.vehicleNo)}</td><td>${escapeHtml(r.vehicleFeet || '—')}</td><td>${r.header.helperCount}</td><td>${escapeHtml(r.remarks || '—')}</td></tr>`).join('');
+    $('#reportRows').innerHTML = rows.map(r => `<tr><td>${fmtDate(r.header.date)}<br><span class="muted">${escapeHtml(r.header.shift)}</span></td><td>${escapeHtml(displayIncharge(r.header.incharge))}</td><td>${escapeHtml(r.customer)}</td><td>${escapeHtml(r.start)}</td><td>${escapeHtml(r.end)}</td><td>${durationText(Number(r.totalHours))}</td><td>${escapeHtml(r.vehicleNo)}</td><td>${escapeHtml(r.vehicleFeet || '—')}</td><td>${r.header.helperCount}</td><td>${escapeHtml(r.remarks || '—')}</td></tr>`).join('');
     $('#reportEmpty').classList.toggle('hidden', rows.length > 0);
     $('.table-wrap').classList.toggle('hidden', rows.length === 0);
     return rows;
@@ -162,7 +163,7 @@
   function download(filename, text, type) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = filename; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }
   function downloadCSV() {
     const rows = filteredRows(), headings = ['DATE','SHIFT','LOADING INCHARGE','HELPER COUNT','CUSTOMER','LOADING START','LOADING END','TOTAL HRS','VEHICLE NO','VEHICLE FEET','REMARKS'];
-    const data = rows.map(r => [r.header.date,r.header.shift,r.header.incharge,r.header.helperCount,r.customer,r.start,r.end,Number(r.totalHours).toFixed(2),r.vehicleNo,r.vehicleFeet,r.remarks]);
+    const data = rows.map(r => [r.header.date,r.header.shift,displayIncharge(r.header.incharge),r.header.helperCount,r.customer,r.start,r.end,Number(r.totalHours).toFixed(2),r.vehicleNo,r.vehicleFeet,r.remarks]);
     download(`loading-report-${todayISO()}.csv`, [headings,...data].map(row => row.map(csvCell).join(',')).join('\r\n'), 'text/csv;charset=utf-8');
   }
   async function saveForm(event) {
