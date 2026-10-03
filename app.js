@@ -13,40 +13,8 @@
   if (!Array.isArray(state.stageRows)) state.stageRows = [];
   if (!Array.isArray(state.inchargeNames)) state.inchargeNames = [];
   const apiUrl = String(window.LOADING_API_URL || '').trim();
-  state.items = state.items.map(normalizeItem);
 
   function persist() { localStorage.setItem(KEY, JSON.stringify(state)); }
-  function time24(value) {
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      const minute = Math.round(((value % 1 + 1) % 1) * 1440) % 1440;
-      return `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
-    }
-    const match = String(value ?? '').trim().match(/(?:^|[ T])(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$/);
-    if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) return '';
-    return `${match[1].padStart(2, '0')}:${match[2]}`;
-  }
-  function normalizeItem(item) {
-    const start = time24(item.start), end = time24(item.end);
-    const duration = hoursBetween(start, end);
-    return { ...item, start, end, totalHours: duration === null ? item.totalHours : Number(duration.toFixed(2)) };
-  }
-  function adoptSheet(remote, names = state.inchargeNames || []) {
-    // Keep a recovery copy before the first connector replaces browser data.
-    if (!localStorage.getItem(KEY + '.before-sheet-sync')) localStorage.setItem(KEY + '.before-sheet-sync', JSON.stringify(state));
-    const headers = new Map((remote.headers || []).map(h => [h.id, { ...h, localOnly: false }]));
-    const items = new Map((remote.items || []).map(i => [i.id, normalizeItem(i)]));
-    for (const h of state.headers) if (!headers.has(h.id)) headers.set(h.id, { ...h, localOnly: true });
-    for (const i of state.items) if (!items.has(i.id)) {
-      items.set(i.id, normalizeItem(i));
-      if (headers.has(i.loadingId)) headers.set(i.loadingId, { ...headers.get(i.loadingId), localOnly: true });
-    }
-    state = { headers: [...headers.values()], items: [...items.values()], stageRows: remote.stageRows || [], inchargeNames: names };
-  }
-  function sheetStatus() {
-    const pending = state.headers.filter(h => h.localOnly).length;
-    setStorageStatus('Connected to Google Sheet.', pending ? `${pending} earlier shift entries remain on this device only. Download Backup before moving devices; these entries are not yet in the Sheet.` : 'Loading entries sync through the source sheet across authorized devices.');
-  }
-
   function inchargeNames() {
     const all = [...DEFAULT_INCHARGES, ...state.inchargeNames, ...state.headers.map(h => h.incharge).filter(Boolean)];
     const unique = new Map();
@@ -81,16 +49,15 @@
     try {
       const data = await loadSheetData();
       const savedNames = state.inchargeNames || [];
-      adoptSheet(data, savedNames);
+      state = { headers: data.headers || [], items: data.items || [], stageRows: data.stageRows || [], inchargeNames: savedNames, activeShift: state.activeShift || null };
       persist(); renderHome();
       refreshInchargeOptions();
-      sheetStatus();
+      setStorageStatus('Connected to Google Sheet.', 'Loading entries sync through the source sheet across authorized devices.');
     } catch (error) {
       setStorageStatus('Google Sheet sync is unavailable.', `${error.message} Entries currently stay in this browser.`);
     }
   }
   function hoursBetween(start, end) {
-    start = time24(start); end = time24(end);
     if (!start || !end) return null;
     const [sh, sm] = start.split(':').map(Number), [eh, em] = end.split(':').map(Number);
     let minutes = eh * 60 + em - (sh * 60 + sm);
@@ -131,9 +98,40 @@
   }
   function renumberRows() { $$('.vehicle-row-head strong').forEach((el, i) => el.textContent = `Vehicle ${i + 1}`); }
   function openNew() {
-    $('#loadingForm').reset(); $('#loadingDate').value = todayISO(); $('#vehicleRows').replaceChildren(); addVehicleRow();
+    $('#loadingForm').reset(); $('#vehicleRows').replaceChildren(); addVehicleRow();
     refreshInchargeOptions();
+    if (state.activeShift) {
+      setActiveShiftMode(true);
+    } else {
+      $('#loadingDate').value = todayISO();
+      setActiveShiftMode(false);
+    }
     navigate('new');
+  }
+  function setActiveShiftMode(active) {
+    const shift = state.activeShift;
+    $('#shiftDetailsCard').classList.toggle('hidden', active);
+    $('#activeShiftNote').classList.toggle('hidden', !active);
+    $('#addVehicleButton').classList.toggle('hidden', active);
+    $('#finishShiftFormButton').classList.toggle('hidden', !active);
+    $('#formHeading').textContent = active ? 'Add vehicle' : 'New loading entry';
+    $('#saveLoadingButton').textContent = active ? 'Save vehicle & add next' : 'Save shift & vehicles';
+    if (active && shift) {
+      $('#activeShiftNote').textContent = `Adding vehicles to ${displayIncharge(shift.incharge)} · ${String(shift.shift).toUpperCase()} SHIFT · ${fmtDate(shift.date)} · ${shift.helperCount} helpers`;
+    } else {
+      $('#activeShiftNote').textContent = '';
+    }
+  }
+  function finishActiveShift() {
+    if (!state.activeShift) return;
+    const name = displayIncharge(state.activeShift.incharge);
+    if (!confirm(`Finish ${name}'s shift? Saved vehicle entries will remain in the report. The next loading entry will ask for shift details.`)) return;
+    state.activeShift = null;
+    persist();
+    setActiveShiftMode(false);
+    renderHome();
+    navigate('home');
+    showToast('Shift finished. Start a new shift to enter details again.');
   }
   function allRows() {
     const headers = new Map(state.headers.map(h => [h.id, h]));
@@ -150,6 +148,13 @@
       ['All-time entries', state.items.length, 'Vehicle records saved', '↗']
     ];
     $('#metrics').innerHTML = metrics.map(([label, value, hint, icon]) => `<article class="metric-card"><div class="metric-top">${label}<span class="metric-icon">${icon}</span></div><div class="metric-value">${value}</div><div class="metric-hint">${hint}</div></article>`).join('');
+    const activeCard = $('#activeShiftCard');
+    if (state.activeShift) {
+      const shift = state.activeShift, count = state.items.filter(item => item.loadingId === shift.id).length;
+      $('#activeShiftLabel').textContent = `${displayIncharge(shift.incharge)} · ${String(shift.shift).toUpperCase()} SHIFT · ${fmtDate(shift.date)}`;
+      $('#activeShiftCount').textContent = `${count} vehicle${count === 1 ? '' : 's'} saved · ${shift.helperCount} helpers`;
+      activeCard.classList.remove('hidden');
+    } else activeCard.classList.add('hidden');
     const latest = [...state.headers].sort((a, b) => `${b.date}${b.createdAt}`.localeCompare(`${a.date}${a.createdAt}`)).slice(0, 6);
     const list = $('#recentList');
     if (!latest.length) { list.innerHTML = '<div class="empty-state">No loading entries yet. Tap <b>New loading</b> to record the first shift.</div>'; return; }
@@ -181,7 +186,7 @@
     const rows = filteredRows();
     const hours = rows.reduce((a, r) => a + (Number(r.totalHours) || 0), 0);
     $('#reportSummary').textContent = `${rows.length} vehicle${rows.length === 1 ? '' : 's'} · ${new Set(rows.map(r => r.loadingId)).size} shift entries · ${durationText(hours)} total loading time`;
-    $('#reportRows').innerHTML = rows.map(r => `<tr><td>${fmtDate(r.header.date)}<br><span class="muted">${escapeHtml(r.header.shift)}${r.header.localOnly ? ' · DEVICE ONLY' : ''}</span></td><td>${escapeHtml(displayIncharge(r.header.incharge))}</td><td>${escapeHtml(r.customer)}</td><td>${escapeHtml(r.start)}</td><td>${escapeHtml(r.end)}</td><td>${durationText(Number(r.totalHours))}</td><td>${escapeHtml(r.vehicleNo)}</td><td>${escapeHtml(r.vehicleFeet || '—')}</td><td>${r.header.helperCount}</td><td>${escapeHtml(r.remarks || '—')}</td></tr>`).join('');
+    $('#reportRows').innerHTML = rows.map(r => `<tr><td>${fmtDate(r.header.date)}<br><span class="muted">${escapeHtml(r.header.shift)}</span></td><td>${escapeHtml(displayIncharge(r.header.incharge))}</td><td>${escapeHtml(r.customer)}</td><td>${escapeHtml(r.start)}</td><td>${escapeHtml(r.end)}</td><td>${durationText(Number(r.totalHours))}</td><td>${escapeHtml(r.vehicleNo)}</td><td>${escapeHtml(r.vehicleFeet || '—')}</td><td>${r.header.helperCount}</td><td>${escapeHtml(r.remarks || '—')}</td></tr>`).join('');
     $('#reportEmpty').classList.toggle('hidden', rows.length > 0);
     $('.table-wrap').classList.toggle('hidden', rows.length === 0);
     return rows;
@@ -216,11 +221,15 @@
   }
   async function saveForm(event) {
     event.preventDefault();
-    const date = $('#loadingDate').value, shift = $('#shift').value, incharge = $('#incharge').value.trim(), helperCount = Number($('#helperCount').value);
+    const continuing = Boolean(state.activeShift);
+    const date = continuing ? state.activeShift.date : $('#loadingDate').value;
+    const shift = continuing ? state.activeShift.shift : $('#shift').value;
+    const incharge = continuing ? state.activeShift.incharge : $('#incharge').value.trim();
+    const helperCount = continuing ? state.activeShift.helperCount : Number($('#helperCount').value);
     const rows = $$('.vehicle-row').map(row => ({ customer: $('.customer',row).value.trim(), vehicleNo: $('.vehicle',row).value.trim().toUpperCase(), vehicleFeet: $('.feet',row).value.trim().toUpperCase(), start: $('.start',row).value, end: $('.end',row).value, remarks: $('.remarks',row).value.trim() }));
-    if (!date || !shift || !incharge || helperCount < 0 || rows.some(r => !r.customer || !r.vehicleNo || !r.start || !r.end)) return showToast('Please complete all required fields.');
-    const id = uid(), header = { id, date, shift, incharge, helperCount, createdAt: new Date().toISOString() };
-    const items = rows.map(r => ({ id: uid(), loadingId: id, ...r, totalHours: Number(hoursBetween(r.start,r.end).toFixed(2)) }));
+    if ((!continuing && (!date || !shift || !incharge || helperCount < 0)) || rows.some(r => !r.customer || !r.vehicleNo || !r.start || !r.end)) return showToast('Please complete all required fields.');
+    const header = state.activeShift || { id: uid(), date, shift, incharge, helperCount, createdAt: new Date().toISOString() };
+    const items = rows.map(r => ({ id: uid(), loadingId: header.id, ...r, totalHours: Number(hoursBetween(r.start,r.end).toFixed(2)) }));
     const saveButton = $('#loadingForm button[type="submit"]');
     saveButton.disabled = true;
     if (apiUrl) {
@@ -228,23 +237,31 @@
       try {
         await fetch(apiUrl, { method: 'POST', mode: 'no-cors', credentials: 'include', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify({ action: 'save', header, items }) });
         const remote = await loadSheetData();
-        if (!remote.headers.some(row => row.id === id)) throw new Error('The new entry was not found in the sheet after saving.');
-        adoptSheet(remote, [...new Set([...(state.inchargeNames || []), incharge])]);
+        const savedItems = new Set((remote.items || []).map(row => row.id));
+        if (!remote.headers.some(row => row.id === header.id) || items.some(item => !savedItems.has(item.id))) throw new Error('The vehicle entry was not found in the sheet after saving.');
+        state = { headers: remote.headers || [], items: remote.items || [], stageRows: remote.stageRows || [], inchargeNames: [...new Set([...(state.inchargeNames || []), incharge])], activeShift: header };
         persist(); renderHome();
         refreshInchargeOptions();
-        sheetStatus();
-        navigate('home'); showToast('Loading entry saved to the Google Sheet.');
+        setStorageStatus('Connected to Google Sheet.', 'Loading entries sync through the source sheet across authorized devices.');
+        $('#vehicleRows').replaceChildren(); addVehicleRow(); setActiveShiftMode(true); showToast('Vehicle saved to the Google Sheet. Add the next vehicle.');
       } catch (error) {
-        state.headers.push(header); state.items.push(...items); state.inchargeNames = [...new Set([...(state.inchargeNames || []), incharge])]; persist(); renderHome();
+        if (!state.headers.some(row => row.id === header.id)) state.headers.push(header);
+        const existingIds = new Set(state.items.map(row => row.id)); state.items.push(...items.filter(item => !existingIds.has(item.id)));
+        state.inchargeNames = [...new Set([...(state.inchargeNames || []), incharge])]; state.activeShift = header; persist(); renderHome();
         setStorageStatus('Google Sheet save could not be confirmed.', `${error.message} This entry is saved only in this browser. Download a backup and check the connection.`);
-        navigate('home'); showToast('Saved on this device only. Google Sheet did not confirm the entry.');
+        $('#vehicleRows').replaceChildren(); addVehicleRow(); setActiveShiftMode(true); showToast('Saved on this device only. Continue adding vehicles; check Sheet sync later.');
       } finally { saveButton.disabled = false; }
       return;
     }
-    state.headers.push(header); state.items.push(...items); state.inchargeNames = [...new Set([...(state.inchargeNames || []), incharge])]; persist(); navigate('home'); showToast('Loading entry saved on this device.');
+    if (!state.headers.some(row => row.id === header.id)) state.headers.push(header);
+    state.items.push(...items); state.inchargeNames = [...new Set([...(state.inchargeNames || []), incharge])]; state.activeShift = header; persist(); renderHome();
+    $('#vehicleRows').replaceChildren(); addVehicleRow(); setActiveShiftMode(true); showToast('Vehicle saved. Add the next vehicle; shift details are saved.');
     saveButton.disabled = false;
   }
   $('#newLoadingButton').addEventListener('click', openNew);
+  $('#continueShiftButton').addEventListener('click', openNew);
+  $('#finishShiftHomeButton').addEventListener('click', finishActiveShift);
+  $('#finishShiftFormButton').addEventListener('click', finishActiveShift);
   $('#addInchargeButton').addEventListener('click', () => {
     const entered = prompt('Naye loading incharge ka naam likhen:');
     const name = String(entered || '').trim().toUpperCase();
@@ -278,7 +295,7 @@
       if (!Array.isArray(imported.headers) || !Array.isArray(imported.items) || imported.headers.some(h => !h.id || !h.date || !h.shift) || imported.items.some(i => !i.id || !i.loadingId || !i.vehicleNo)) throw new Error('The file does not have the expected loading log format.');
       const replace = confirm(`Replace the ${state.items.length} records saved in this browser with ${imported.items.length} records from the backup?`);
       if (!replace) return;
-      state = { headers: imported.headers, items: imported.items.map(normalizeItem), stageRows: imported.stageRows || [], inchargeNames: imported.inchargeNames || [] }; persist(); renderHome(); $('#backupStatus').textContent = 'Backup restored.'; showToast('Backup restored successfully.');
+      state = { headers: imported.headers, items: imported.items, stageRows: imported.stageRows || [], inchargeNames: imported.inchargeNames || [] }; persist(); renderHome(); $('#backupStatus').textContent = 'Backup restored.'; showToast('Backup restored successfully.');
     } catch (error) { $('#backupStatus').textContent = error.message || 'Could not read backup.'; }
     event.target.value = '';
   });

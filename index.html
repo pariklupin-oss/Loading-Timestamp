@@ -28,14 +28,15 @@
           </div>
           <div class="metric-grid" id="metrics"></div>
           <div class="storage-note" id="storageNote"><span>ⓘ</span><div><b>Google Sheet sync is not configured.</b><small>Records are saved in this browser until the sheet connector is set up.</small></div></div>
+          <div class="active-shift-card hidden" id="activeShiftCard"><div><p class="eyebrow">ACTIVE SHIFT</p><strong id="activeShiftLabel"></strong><small id="activeShiftCount"></small></div><button class="secondary-button" id="continueShiftButton" type="button">＋ Add vehicle</button><button class="finish-shift-button" id="finishShiftHomeButton" type="button">Finish shift</button></div>
           <div class="section-heading"><div><h2>Recent loading entries</h2><p class="muted">Most recent shift records</p></div><button class="text-button" data-view="reports">View report</button></div>
           <div class="record-list" id="recentList"></div>
         </section>
 
         <section class="view" id="newView">
-          <div class="page-heading"><button class="back-button" data-view="home">←</button><div><p class="eyebrow">SHIFT REGISTER</p><h1>New loading entry</h1></div></div>
+          <div class="page-heading"><button class="back-button" data-view="home">←</button><div><p class="eyebrow">SHIFT REGISTER</p><h1 id="formHeading">New loading entry</h1></div></div>
           <form id="loadingForm">
-            <div class="form-card">
+            <div class="form-card" id="shiftDetailsCard">
               <h2>Shift details</h2>
               <div class="field-grid">
                 <label>Date<input id="loadingDate" type="date" required /></label>
@@ -44,9 +45,10 @@
                 <label>Helper count<input id="helperCount" type="number" min="0" step="1" inputmode="numeric" placeholder="0" required /></label>
               </div>
             </div>
+            <div class="active-shift-note hidden" id="activeShiftNote"></div>
             <div class="section-heading vehicle-heading"><div><h2>Vehicles loaded</h2><p class="muted">Add one row for each vehicle</p></div><button class="secondary-button" type="button" id="addVehicleButton">＋ Add vehicle</button></div>
             <div id="vehicleRows"></div>
-            <div class="form-actions"><button class="secondary-button" type="button" data-view="home">Cancel</button><button class="primary-button" type="submit">Save loading entry</button></div>
+            <div class="form-actions"><button class="secondary-button" type="button" data-view="home">Overview</button><button class="finish-shift-button hidden" id="finishShiftFormButton" type="button">Finish shift</button><button class="primary-button" id="saveLoadingButton" type="submit">Save shift &amp; vehicles</button></div>
           </form>
         </section>
 
