@@ -169,6 +169,11 @@
   }
   function setActiveShiftMode(active) {
     const shift = state.activeShift;
+    ['#loadingDate', '#shift', '#incharge', '#helperCount'].forEach(selector => {
+      const field = $(selector);
+      field.required = !active;
+      field.disabled = active;
+    });
     $('#shiftDetailsCard').classList.toggle('hidden', active);
     $('#activeShiftNote').classList.toggle('hidden', !active);
     $('#addVehicleButton').classList.toggle('hidden', active);
