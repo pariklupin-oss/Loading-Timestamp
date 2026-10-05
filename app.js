@@ -84,17 +84,34 @@
       document.head.append(script);
     });
   }
+  async function retryActiveShiftEntries(remote) {
+    const active = state.activeShift;
+    if (!active) return 0;
+    const remoteIds = new Set((remote.items || []).map(row => String(row.id)));
+    const pending = state.items.filter(item => item.loadingId === active.id && !remoteIds.has(String(item.id)));
+    if (!pending.length) return 0;
+    const shiftItems = state.items.filter(item => item.loadingId === active.id && item.customer && item.vehicleNo && item.start && item.end);
+    await fetch(apiUrl, { method: 'POST', mode: 'no-cors', credentials: 'include', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify({ action: 'save', header: active, items: shiftItems }) });
+    const verified = await loadSheetData();
+    const verifiedIds = new Set((verified.items || []).map(row => String(row.id)));
+    if (!verified.headers.some(row => row.id === active.id) || pending.some(item => !verifiedIds.has(String(item.id)))) throw new Error('Pending vehicle entries could not yet be confirmed in the Sheet. They remain saved on this phone.');
+    mergeSheetData(verified);
+    persist();
+    return pending.length;
+  }
   async function syncFromSheet() {
     setStorageStatus('Connecting to Google Sheet…', 'Loading LOADING_HEADER and LOADING_ITEMS.');
     try {
       const data = await loadSheetData();
       const savedNames = state.inchargeNames || [];
       mergeSheetData(data);
+      const recoveredCount = await retryActiveShiftEntries(data);
       state.inchargeNames = savedNames;
       persist(); renderHome();
       refreshInchargeOptions();
       refreshCustomerOptions();
-      setStorageStatus('Connected to Google Sheet.', state.customerNames.length ? `${state.customerNames.length} customer names ready. Type in Customer to search and select.` : 'Update the Apps Script connector to load names from CUSTOMER_MASTER.');
+      const readyText = state.customerNames.length ? `${state.customerNames.length} customer names ready.` : 'CUSTOMER_MASTER has no customer names yet.';
+      setStorageStatus('Connected to Google Sheet.', recoveredCount ? `${recoveredCount} pending vehicle entr${recoveredCount === 1 ? 'y was' : 'ies were'} saved. ${readyText}` : `${readyText} Loading entries sync across authorized devices.`);
     } catch (error) {
       setStorageStatus('Google Sheet sync is unavailable.', `${error.message} Entries currently stay in this browser.`);
     }
