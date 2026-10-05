@@ -23,6 +23,7 @@ function doGet(e) {
   if (!/^[A-Za-z_$][\w.$]{0,100}$/.test(callback)) return loadingWebText_('Invalid callback.');
   try {
     const result = loadingWebLoad_();
+    result.deletedItemIds = loadingWebDeletedItemIds_();
     return ContentService.createTextOutput(callback + '(' + JSON.stringify(result) + ');')
       .setMimeType(ContentService.MimeType.JAVASCRIPT);
   } catch (err) {
@@ -35,19 +36,53 @@ function doGet(e) {
 function doPost(e) {
   try {
     const body = JSON.parse(e && e.postData && e.postData.contents || '{}');
-    if (body.action !== 'save' || !body.header || !Array.isArray(body.items)) throw new Error('Invalid save request.');
     // Web app executions are outside a spreadsheet document context, so a
     // document lock can be null. A script lock serializes all operators safely.
     const lock = LockService.getScriptLock();
     lock.waitLock(15000);
     try {
-      loadingWebSave_(body);
+      if (body.action === 'save' && body.header && Array.isArray(body.items)) {
+        loadingWebSave_(body);
+      } else if (body.action === 'deleteItem' && body.itemId) {
+        loadingWebDeleteItem_(String(body.itemId));
+      } else {
+        throw new Error('Invalid save or delete request.');
+      }
       SpreadsheetApp.flush();
     } finally { lock.releaseLock(); }
-    return loadingWebText_(JSON.stringify({ ok: true, id: String(body.header.id) }));
+    return loadingWebText_(JSON.stringify({ ok: true, id: String(body.header && body.header.id || body.itemId || '') }));
   } catch (err) {
     return loadingWebText_(JSON.stringify({ ok: false, error: String(err && err.message || err) }));
   }
+}
+
+function loadingWebDeletedItemIds_() {
+  const raw = PropertiesService.getScriptProperties().getProperty('LOADING_WEB_DELETED_ITEM_IDS') || '[]';
+  try {
+    const ids = JSON.parse(raw);
+    return Array.isArray(ids) ? [...new Set(ids.map(String))] : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function loadingWebDeleteItem_(itemId) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new Error('Bind this script to the LOADING TIMESTAMP Google Sheet first.');
+  const sheet = loadingWebRequireTable_(ss, LOADING_LOG_WEB_TABLES.item);
+  const lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    const lastCol = sheet.getLastColumn();
+    const names = sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0].map(v => String(v).trim().toUpperCase());
+    const keyCol = names.indexOf('ITEM_ID') + 1;
+    const ids = sheet.getRange(2, keyCol, lastRow - 1, 1).getDisplayValues().flat();
+    for (let i = ids.length - 1; i >= 0; i--) {
+      if (String(ids[i]).trim() === itemId) sheet.deleteRow(i + 2);
+    }
+  }
+  const deleted = loadingWebDeletedItemIds_();
+  if (deleted.indexOf(itemId) < 0) deleted.push(itemId);
+  PropertiesService.getScriptProperties().setProperty('LOADING_WEB_DELETED_ITEM_IDS', JSON.stringify(deleted.slice(-5000)));
 }
 
 function loadingWebLoad_() {
