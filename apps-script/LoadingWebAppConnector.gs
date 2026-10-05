@@ -36,9 +36,14 @@ function doPost(e) {
   try {
     const body = JSON.parse(e && e.postData && e.postData.contents || '{}');
     if (body.action !== 'save' || !body.header || !Array.isArray(body.items)) throw new Error('Invalid save request.');
-    const lock = LockService.getDocumentLock();
+    // Web app executions are outside a spreadsheet document context, so a
+    // document lock can be null. A script lock serializes all operators safely.
+    const lock = LockService.getScriptLock();
     lock.waitLock(15000);
-    try { loadingWebSave_(body); } finally { lock.releaseLock(); }
+    try {
+      loadingWebSave_(body);
+      SpreadsheetApp.flush();
+    } finally { lock.releaseLock(); }
     return loadingWebText_(JSON.stringify({ ok: true, id: String(body.header.id) }));
   } catch (err) {
     return loadingWebText_(JSON.stringify({ ok: false, error: String(err && err.message || err) }));
