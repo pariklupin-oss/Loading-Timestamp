@@ -13,6 +13,7 @@
   if (!Array.isArray(state.stageRows)) state.stageRows = [];
   if (!Array.isArray(state.inchargeNames)) state.inchargeNames = [];
   if (!Array.isArray(state.customerNames)) state.customerNames = [];
+  if (!Array.isArray(state.deletedItemIds)) state.deletedItemIds = [];
   const apiUrl = String(window.LOADING_API_URL || '').trim();
   let currentDetailLoadingId = null;
   let currentDetailHeaderIds = [];
@@ -32,6 +33,8 @@
   }
   function mergeSheetData(data) {
     const local = state;
+    const deletedItemIds = [...new Set([...(local.deletedItemIds || []), ...(data.deletedItemIds || [])].map(String))];
+    const deleted = new Set(deletedItemIds);
     const stageKey = row => [row.date, row.invoiceNumber, row.itemCode, row.itemName].map(value => String(value || '').trim().toLowerCase()).join('|');
     const stageRows = new Map();
     (local.stageRows || []).forEach(row => stageRows.set(stageKey(row), row));
@@ -39,7 +42,8 @@
     state = {
       ...local,
       headers: mergeById(local.headers, data.headers),
-      items: mergeById(local.items, data.items),
+      items: mergeById(local.items, data.items).filter(row => !deleted.has(String(row.id))),
+      deletedItemIds,
       stageRows: [...stageRows.values()],
       customerNames: [...new Map([...(local.customerNames || []), ...(data.customerNames || [])].map(name => [String(name).trim().toLowerCase(), String(name).trim()])).values()].filter(Boolean),
       activeShift: local.activeShift || null
@@ -99,19 +103,38 @@
     persist();
     return pending.length;
   }
+  async function retryPendingDeletes(remote) {
+    if (!apiUrl) return 0;
+    const remoteDeleted = new Set((remote.deletedItemIds || []).map(String));
+    const pending = (state.deletedItemIds || []).map(String).filter(id => !remoteDeleted.has(id));
+    if (!pending.length) return 0;
+    await Promise.all(pending.map(itemId => fetch(apiUrl, {
+      method: 'POST', mode: 'no-cors', credentials: 'include',
+      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+      body: JSON.stringify({ action: 'deleteItem', itemId })
+    })));
+    const verified = await loadSheetData();
+    const confirmed = new Set((verified.deletedItemIds || []).map(String));
+    if (pending.some(id => !confirmed.has(id))) throw new Error('Delete request could not be confirmed in the Sheet. Deleted entries stay hidden on this phone and will retry after the connector is updated.');
+    mergeSheetData(verified);
+    persist();
+    return pending.length;
+  }
   async function syncFromSheet() {
     setStorageStatus('Connecting to Google Sheet…', 'Loading LOADING_HEADER and LOADING_ITEMS.');
     try {
       const data = await loadSheetData();
       const savedNames = state.inchargeNames || [];
       mergeSheetData(data);
+      const deletedCount = await retryPendingDeletes(data);
       const recoveredCount = await retryActiveShiftEntries(data);
       state.inchargeNames = savedNames;
       persist(); renderHome();
       refreshInchargeOptions();
       refreshCustomerOptions();
       const readyText = state.customerNames.length ? `${state.customerNames.length} customer names ready.` : 'CUSTOMER_MASTER has no customer names yet.';
-      setStorageStatus('Connected to Google Sheet.', recoveredCount ? `${recoveredCount} pending vehicle entr${recoveredCount === 1 ? 'y was' : 'ies were'} saved. ${readyText}` : `${readyText} Loading entries sync across authorized devices.`);
+      const updates = [deletedCount ? `${deletedCount} deletion${deletedCount === 1 ? '' : 's'} synced.` : '', recoveredCount ? `${recoveredCount} pending vehicle entr${recoveredCount === 1 ? 'y was' : 'ies were'} saved.` : ''].filter(Boolean).join(' ');
+      setStorageStatus('Connected to Google Sheet.', `${updates ? updates + ' ' : ''}${readyText} Loading entries sync across authorized devices.`);
     } catch (error) {
       setStorageStatus('Google Sheet sync is unavailable.', `${error.message} Entries currently stay in this browser.`);
     }
@@ -263,7 +286,7 @@
     $('#loadingDetailsSummary').textContent = `${String(header.shift || '').toUpperCase()} SHIFT · ${vehicles.length} vehicles · ${durationText(total)} total loading time${groupHeaders.length > 1 ? ` · ${groupHeaders.length} saved shift records combined` : ''}`;
     const activeInGroup = groupHeaders.some(row => row.id === state.activeShift?.id);
     $('#addVehicleToShiftButton').textContent = activeInGroup ? '＋ Add another vehicle' : '＋ Add vehicle to this shift';
-    $('#loadingDetailsList').innerHTML = vehicles.length ? vehicles.map((item, index) => `<article class="loading-detail-card"><div class="loading-detail-head"><strong>Vehicle ${index + 1}</strong><b>${escapeHtml(item.vehicleNo || '—')}</b></div><div class="loading-detail-customer">${escapeHtml(item.customer || '—')}</div><div class="loading-detail-grid"><span>Type<strong>${escapeHtml(item.vehicleFeet || '—')}</strong></span><span>Loading start<strong>${escapeHtml(item.start || '—')}</strong></span><span>Loading end<strong>${escapeHtml(item.end || '—')}</strong></span><span>Duration<strong>${durationText(Number(item.totalHours))}</strong></span></div>${item.remarks ? `<p class="loading-detail-remarks">Remarks: ${escapeHtml(item.remarks)}</p>` : ''}<button class="secondary-button edit-vehicle-button" type="button" data-item-id="${escapeHtml(item.id)}">Edit this vehicle</button></article>`).join('') : '<div class="empty-state">No vehicle details saved for this shift.</div>';
+    $('#loadingDetailsList').innerHTML = vehicles.length ? vehicles.map((item, index) => `<article class="loading-detail-card"><div class="loading-detail-head"><strong>Vehicle ${index + 1}</strong><b>${escapeHtml(item.vehicleNo || '—')}</b></div><div class="loading-detail-customer">${escapeHtml(item.customer || '—')}</div><div class="loading-detail-grid"><span>Type<strong>${escapeHtml(item.vehicleFeet || '—')}</strong></span><span>Loading start<strong>${escapeHtml(item.start || '—')}</strong></span><span>Loading end<strong>${escapeHtml(item.end || '—')}</strong></span><span>Duration<strong>${durationText(Number(item.totalHours))}</strong></span></div>${item.remarks ? `<p class="loading-detail-remarks">Remarks: ${escapeHtml(item.remarks)}</p>` : ''}<div class="loading-detail-actions"><button class="secondary-button edit-vehicle-button" type="button" data-item-id="${escapeHtml(item.id)}">Edit this vehicle</button><button class="delete-vehicle-button" type="button" data-item-id="${escapeHtml(item.id)}">Delete</button></div></article>`).join('') : '<div class="empty-state">No vehicle details saved for this shift.</div>';
     $$('.edit-vehicle-button', $('#loadingDetailsList')).forEach(button => button.addEventListener('click', () => openEditVehicle(button.dataset.itemId)));
     $('#loadingDetailsDialog').showModal();
   }
@@ -295,6 +318,26 @@
     $('#editVehicleStatus').textContent = apiUrl ? 'Changes will be saved to the connected sheet.' : 'Changes will be saved on this device only.';
     $('#loadingDetailsDialog').close();
     $('#editVehicleDialog').showModal();
+  }
+  async function deleteVehicleEntry(id) {
+    const item = state.items.find(row => String(row.id) === String(id));
+    if (!item) return showToast('Vehicle entry nahi mili.');
+    if (!confirm(`Delete vehicle ${item.vehicleNo || ''}? This entry will be removed from this app.`)) return;
+    state.items = state.items.filter(row => String(row.id) !== String(id));
+    state.deletedItemIds = [...new Set([...(state.deletedItemIds || []), String(id)])];
+    persist(); renderHome(); renderReports();
+    if (currentDetailLoadingId) showLoadingDetails(currentDetailLoadingId);
+    showToast('Entry is deleted from this phone. Syncing delete…');
+    if (!apiUrl) return;
+    try {
+      await retryPendingDeletes({ deletedItemIds: [] });
+      renderHome(); renderReports();
+      if (currentDetailLoadingId) showLoadingDetails(currentDetailLoadingId);
+      showToast('Vehicle entry deleted and synced.');
+    } catch (error) {
+      setStorageStatus('Delete is waiting for Google Sheet sync.', `${error.message} Entry is deleted from this phone; pending delete will retry when the connector is ready.`);
+      showToast('Deleted on this phone. Sheet sync will retry.');
+    }
   }
   function openEditShift() {
     const header = state.headers.find(row => row.id === currentDetailLoadingId);
@@ -455,6 +498,10 @@
   });
   $('#editShiftDetailsButton').addEventListener('click', openEditShift);
   $('#editVehicleForm').addEventListener('submit', saveEditedVehicle);
+  $('#loadingDetailsList').addEventListener('click', event => {
+    const button = event.target.closest('.delete-vehicle-button');
+    if (button) deleteVehicleEntry(button.dataset.itemId);
+  });
   $('#editShiftForm').addEventListener('submit', saveEditedShift);
   $('#cancelEditVehicle').addEventListener('click', () => $('#editVehicleDialog').close());
   $('#cancelEditShift').addEventListener('click', () => $('#editShiftDialog').close());
