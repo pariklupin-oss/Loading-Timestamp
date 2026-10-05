@@ -13,6 +13,9 @@
   if (!Array.isArray(state.stageRows)) state.stageRows = [];
   if (!Array.isArray(state.inchargeNames)) state.inchargeNames = [];
   const apiUrl = String(window.LOADING_API_URL || '').trim();
+  let currentDetailLoadingId = null;
+  let editingItemId = null;
+  let editingHeaderId = null;
 
   function persist() { localStorage.setItem(KEY, JSON.stringify(state)); }
   function inchargeNames() {
@@ -175,7 +178,10 @@
     const total = vehicles.reduce((sum, item) => sum + (Number(item.totalHours) || 0), 0);
     $('#loadingDetailsTitle').textContent = `${displayIncharge(header.incharge)} · ${fmtDate(header.date)}`;
     $('#loadingDetailsSummary').textContent = `${String(header.shift || '').toUpperCase()} SHIFT · ${vehicles.length} vehicles · ${durationText(total)} total loading time`;
-    $('#loadingDetailsList').innerHTML = vehicles.length ? vehicles.map((item, index) => `<article class="loading-detail-card"><div class="loading-detail-head"><strong>Vehicle ${index + 1}</strong><b>${escapeHtml(item.vehicleNo || '—')}</b></div><div class="loading-detail-customer">${escapeHtml(item.customer || '—')}</div><div class="loading-detail-grid"><span>Type<strong>${escapeHtml(item.vehicleFeet || '—')}</strong></span><span>Loading start<strong>${escapeHtml(item.start || '—')}</strong></span><span>Loading end<strong>${escapeHtml(item.end || '—')}</strong></span><span>Duration<strong>${durationText(Number(item.totalHours))}</strong></span></div>${item.remarks ? `<p class="loading-detail-remarks">Remarks: ${escapeHtml(item.remarks)}</p>` : ''}</article>`).join('') : '<div class="empty-state">No vehicle details saved for this shift.</div>';
+    currentDetailLoadingId = id;
+    $('#addVehicleToShiftButton').textContent = state.activeShift?.id === id ? '＋ Add another vehicle' : '＋ Add vehicle to this shift';
+    $('#loadingDetailsList').innerHTML = vehicles.length ? vehicles.map((item, index) => `<article class="loading-detail-card"><div class="loading-detail-head"><strong>Vehicle ${index + 1}</strong><b>${escapeHtml(item.vehicleNo || '—')}</b></div><div class="loading-detail-customer">${escapeHtml(item.customer || '—')}</div><div class="loading-detail-grid"><span>Type<strong>${escapeHtml(item.vehicleFeet || '—')}</strong></span><span>Loading start<strong>${escapeHtml(item.start || '—')}</strong></span><span>Loading end<strong>${escapeHtml(item.end || '—')}</strong></span><span>Duration<strong>${durationText(Number(item.totalHours))}</strong></span></div>${item.remarks ? `<p class="loading-detail-remarks">Remarks: ${escapeHtml(item.remarks)}</p>` : ''}<button class="secondary-button edit-vehicle-button" type="button" data-item-id="${escapeHtml(item.id)}">Edit this vehicle</button></article>`).join('') : '<div class="empty-state">No vehicle details saved for this shift.</div>';
+    $$('.edit-vehicle-button', $('#loadingDetailsList')).forEach(button => button.addEventListener('click', () => openEditVehicle(button.dataset.itemId)));
     $('#loadingDetailsDialog').showModal();
   }
   function filteredRows() {
@@ -186,10 +192,95 @@
     const rows = filteredRows();
     const hours = rows.reduce((a, r) => a + (Number(r.totalHours) || 0), 0);
     $('#reportSummary').textContent = `${rows.length} vehicle${rows.length === 1 ? '' : 's'} · ${new Set(rows.map(r => r.loadingId)).size} shift entries · ${durationText(hours)} total loading time`;
-    $('#reportRows').innerHTML = rows.map(r => `<tr><td>${fmtDate(r.header.date)}<br><span class="muted">${escapeHtml(r.header.shift)}</span></td><td>${escapeHtml(displayIncharge(r.header.incharge))}</td><td>${escapeHtml(r.customer)}</td><td>${escapeHtml(r.start)}</td><td>${escapeHtml(r.end)}</td><td>${durationText(Number(r.totalHours))}</td><td>${escapeHtml(r.vehicleNo)}</td><td>${escapeHtml(r.vehicleFeet || '—')}</td><td>${r.header.helperCount}</td><td>${escapeHtml(r.remarks || '—')}</td></tr>`).join('');
+    $('#reportRows').innerHTML = rows.map(r => `<tr><td>${fmtDate(r.header.date)}<br><span class="muted">${escapeHtml(r.header.shift)}</span></td><td>${escapeHtml(displayIncharge(r.header.incharge))}</td><td>${escapeHtml(r.customer)}</td><td>${escapeHtml(r.start)}</td><td>${escapeHtml(r.end)}</td><td>${durationText(Number(r.totalHours))}</td><td>${escapeHtml(r.vehicleNo)}</td><td>${escapeHtml(r.vehicleFeet || '—')}</td><td>${r.header.helperCount}</td><td>${escapeHtml(r.remarks || '—')}</td><td><button class="table-edit-button" type="button" data-loading-id="${escapeHtml(r.loadingId)}">Details / edit</button></td></tr>`).join('');
+    $$('.table-edit-button', $('#reportRows')).forEach(button => button.addEventListener('click', () => showLoadingDetails(button.dataset.loadingId)));
     $('#reportEmpty').classList.toggle('hidden', rows.length > 0);
     $('.table-wrap').classList.toggle('hidden', rows.length === 0);
     return rows;
+  }
+  function openEditVehicle(id) {
+    const item = state.items.find(row => row.id === id);
+    if (!item) return showToast('Vehicle entry nahi mili.');
+    editingItemId = id;
+    $('#editCustomer').value = item.customer || '';
+    $('#editVehicleNo').value = item.vehicleNo || '';
+    $('#editVehicleFeet').value = item.vehicleFeet || '';
+    $('#editStart').value = item.start || '';
+    $('#editEnd').value = item.end || '';
+    $('#editRemarks').value = item.remarks || '';
+    $('#editVehicleStatus').textContent = apiUrl ? 'Changes will be saved to the connected sheet.' : 'Changes will be saved on this device only.';
+    $('#loadingDetailsDialog').close();
+    $('#editVehicleDialog').showModal();
+  }
+  function openEditShift() {
+    const header = state.headers.find(row => row.id === currentDetailLoadingId);
+    if (!header) return showToast('Shift entry nahi mili.');
+    editingHeaderId = header.id;
+    $('#editShiftDate').value = header.date || '';
+    $('#editShiftName').value = String(header.shift || 'DAY').toUpperCase();
+    $('#editShiftIncharge').value = displayIncharge(header.incharge);
+    $('#editShiftHelpers').value = Number(header.helperCount) || 0;
+    $('#editShiftStatus').textContent = apiUrl ? 'Changes will be saved to the connected sheet.' : 'Changes will be saved on this device only.';
+    $('#loadingDetailsDialog').close();
+    $('#editShiftDialog').showModal();
+  }
+  async function saveEditedVehicle(event) {
+    event.preventDefault();
+    const index = state.items.findIndex(row => row.id === editingItemId), oldItem = state.items[index];
+    if (!oldItem) return showToast('Vehicle entry nahi mili.');
+    const updated = { ...oldItem, customer: $('#editCustomer').value.trim(), vehicleNo: $('#editVehicleNo').value.trim().toUpperCase(), vehicleFeet: $('#editVehicleFeet').value.trim().toUpperCase(), start: $('#editStart').value, end: $('#editEnd').value, remarks: $('#editRemarks').value.trim() };
+    if (!updated.customer || !updated.vehicleNo || !updated.start || !updated.end) return showToast('Required fields fill karein.');
+    updated.totalHours = Number(hoursBetween(updated.start, updated.end).toFixed(2));
+    const submit = $('#editVehicleForm button[type="submit"]'); submit.disabled = true;
+    let synced = !apiUrl;
+    try {
+      if (apiUrl) {
+        const header = state.headers.find(row => row.id === updated.loadingId);
+        await fetch(apiUrl, { method: 'POST', mode: 'no-cors', credentials: 'include', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify({ action: 'save', header, items: [updated] }) });
+        const remote = await loadSheetData();
+        const saved = (remote.items || []).find(row => row.id === updated.id);
+        if (!saved || saved.vehicleNo !== updated.vehicleNo || saved.start !== updated.start || saved.end !== updated.end || saved.customer !== updated.customer) throw new Error('Edited entry could not be confirmed in the Sheet.');
+        state = { ...state, headers: remote.headers || [], items: remote.items || [], stageRows: remote.stageRows || [] };
+        synced = true;
+      } else state.items[index] = updated;
+    } catch (error) {
+      state.items[index] = updated;
+      setStorageStatus('Edit could not be confirmed in Google Sheet.', `${error.message} The edited entry is saved only in this browser.`);
+    }
+    persist(); renderHome(); renderReports();
+    $('#editVehicleDialog').close();
+    if (currentDetailLoadingId) showLoadingDetails(currentDetailLoadingId);
+    showToast(synced ? 'Vehicle entry updated.' : 'Updated on this device only; Sheet sync needs checking.');
+    submit.disabled = false;
+  }
+  async function saveEditedShift(event) {
+    event.preventDefault();
+    const header = state.headers.find(row => row.id === editingHeaderId);
+    if (!header) return showToast('Shift entry nahi mili.');
+    const updated = { ...header, date: $('#editShiftDate').value, shift: $('#editShiftName').value, incharge: $('#editShiftIncharge').value.trim(), helperCount: Number($('#editShiftHelpers').value) };
+    if (!updated.date || !updated.shift || !updated.incharge || updated.helperCount < 0) return showToast('Shift ki required details fill karein.');
+    const submit = $('#editShiftForm button[type="submit"]'); submit.disabled = true;
+    let synced = !apiUrl;
+    try {
+      if (apiUrl) {
+        await fetch(apiUrl, { method: 'POST', mode: 'no-cors', credentials: 'include', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify({ action: 'save', header: updated, items: [] }) });
+        const remote = await loadSheetData();
+        const saved = (remote.headers || []).find(row => row.id === updated.id);
+        if (!saved || saved.date !== updated.date || String(saved.shift).toUpperCase() !== updated.shift || displayIncharge(saved.incharge).toUpperCase() !== displayIncharge(updated.incharge).toUpperCase() || Number(saved.helperCount) !== updated.helperCount) throw new Error('Edited shift could not be confirmed in the Sheet.');
+        state.headers = remote.headers || []; state.items = remote.items || []; state.stageRows = remote.stageRows || [];
+        synced = true;
+      } else state.headers[state.headers.findIndex(row => row.id === updated.id)] = updated;
+    } catch (error) {
+      state.headers[state.headers.findIndex(row => row.id === updated.id)] = updated;
+      setStorageStatus('Edit could not be confirmed in Google Sheet.', `${error.message} Shift changes are saved only in this browser.`);
+    }
+    if (state.activeShift?.id === updated.id) state.activeShift = updated;
+    state.inchargeNames = [...new Set([...(state.inchargeNames || []), displayIncharge(updated.incharge)])];
+    persist(); refreshInchargeOptions(); renderHome(); renderReports();
+    $('#editShiftDialog').close();
+    showLoadingDetails(updated.id);
+    showToast(synced ? 'Shift details updated.' : 'Updated on this device only; Sheet sync needs checking.');
+    submit.disabled = false;
   }
   function filteredStageRows() {
     const from = $('#gapFrom').value, to = $('#gapTo').value, query = $('#gapSearch').value.trim().toLowerCase();
@@ -262,6 +353,17 @@
   $('#continueShiftButton').addEventListener('click', openNew);
   $('#finishShiftHomeButton').addEventListener('click', finishActiveShift);
   $('#finishShiftFormButton').addEventListener('click', finishActiveShift);
+  $('#addVehicleToShiftButton').addEventListener('click', () => {
+    const header = state.headers.find(row => row.id === currentDetailLoadingId);
+    if (!header) return showToast('Shift entry nahi mili.');
+    if (state.activeShift && state.activeShift.id !== header.id && !confirm('Aap ek purani shift mein vehicle add kar rahe hain. Maujooda active shift ki entries saved rahengi; continue karein?')) return;
+    state.activeShift = header; persist(); $('#loadingDetailsDialog').close(); openNew();
+  });
+  $('#editShiftDetailsButton').addEventListener('click', openEditShift);
+  $('#editVehicleForm').addEventListener('submit', saveEditedVehicle);
+  $('#editShiftForm').addEventListener('submit', saveEditedShift);
+  $('#cancelEditVehicle').addEventListener('click', () => $('#editVehicleDialog').close());
+  $('#cancelEditShift').addEventListener('click', () => $('#editShiftDialog').close());
   $('#addInchargeButton').addEventListener('click', () => {
     const entered = prompt('Naye loading incharge ka naam likhen:');
     const name = String(entered || '').trim().toUpperCase();

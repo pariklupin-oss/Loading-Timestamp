@@ -62,7 +62,7 @@
             <button class="secondary-button" id="clearFilters" type="button">Clear</button>
           </div>
           <div class="report-summary" id="reportSummary"></div>
-          <div class="table-wrap"><table><thead><tr><th>Date / Shift</th><th>Incharge</th><th>Customer</th><th>Start</th><th>End</th><th>Hours</th><th>Vehicle</th><th>Feet / type</th><th>Helpers</th><th>Remarks</th></tr></thead><tbody id="reportRows"></tbody></table></div>
+          <div class="table-wrap"><table><thead><tr><th>Date / Shift</th><th>Incharge</th><th>Customer</th><th>Start</th><th>End</th><th>Hours</th><th>Vehicle</th><th>Feet / type</th><th>Helpers</th><th>Remarks</th><th>Edit</th></tr></thead><tbody id="reportRows"></tbody></table></div>
           <div class="empty-state hidden" id="reportEmpty">No records match these filters.</div>
           <div class="export-row"><button class="secondary-button" id="csvButton" type="button">Download CSV report</button></div>
         </section>
@@ -104,7 +104,33 @@
       <form method="dialog" class="dialog-close-row"><button class="icon-button" aria-label="Close">×</button></form>
       <p class="eyebrow">SHIFT VEHICLES</p><h2 id="loadingDetailsTitle">Loading details</h2>
       <p class="muted" id="loadingDetailsSummary"></p>
+      <div class="dialog-actions"><button class="primary-button" id="addVehicleToShiftButton" type="button">＋ Add vehicle to this shift</button><button class="secondary-button" id="editShiftDetailsButton" type="button">Edit shift details</button></div>
       <div class="loading-details-list" id="loadingDetailsList"></div>
+    </dialog>
+    <dialog id="editVehicleDialog" class="edit-dialog">
+      <form method="dialog" class="dialog-close-row"><button class="icon-button" aria-label="Close">×</button></form>
+      <p class="eyebrow">EDIT VEHICLE</p><h2>Edit vehicle entry</h2>
+      <form id="editVehicleForm" class="edit-form">
+        <label>Customer<input id="editCustomer" required /></label>
+        <label>Vehicle number<input id="editVehicleNo" required /></label>
+        <label>Vehicle feet / type<input id="editVehicleFeet" /></label>
+        <div class="edit-field-row"><label>Loading start<input id="editStart" type="time" required /></label><label>Loading end<input id="editEnd" type="time" required /></label></div>
+        <label>Remarks<input id="editRemarks" /></label>
+        <p class="small-note" id="editVehicleStatus"></p>
+        <div class="dialog-actions"><button class="secondary-button" id="cancelEditVehicle" type="button">Cancel</button><button class="primary-button" type="submit">Save changes</button></div>
+      </form>
+    </dialog>
+    <dialog id="editShiftDialog" class="edit-dialog">
+      <form method="dialog" class="dialog-close-row"><button class="icon-button" aria-label="Close">×</button></form>
+      <p class="eyebrow">EDIT SHIFT</p><h2>Edit shift details</h2>
+      <form id="editShiftForm" class="edit-form">
+        <label>Date<input id="editShiftDate" type="date" required /></label>
+        <label>Shift<select id="editShiftName" required><option>DAY</option><option>NIGHT</option></select></label>
+        <label>Loading incharge<input id="editShiftIncharge" list="inchargeOptions" required /></label>
+        <label>Helper count<input id="editShiftHelpers" type="number" min="0" step="1" required /></label>
+        <p class="small-note" id="editShiftStatus"></p>
+        <div class="dialog-actions"><button class="secondary-button" id="cancelEditShift" type="button">Cancel</button><button class="primary-button" type="submit">Save shift changes</button></div>
+      </form>
     </dialog>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="config.js"></script>

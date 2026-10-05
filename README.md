@@ -6,7 +6,8 @@ Mobile-first loading register based on the columns in the provided workbook:
 - **Incharge names:** the default selection uses AJAY in place of AJEET; use **＋ Add** beside the field for a new name. A new name is stored locally right away and becomes available to other connected devices after the first loading entry with that name is saved to the Google Sheet.
 - **Vehicle details:** Customer, Loading Start, Loading End, Total Hours, Vehicle No, Vehicle Feet / Type, Remarks
 - **Reports:** date, shift and incharge filters; CSV download
-- **Overview details:** tap any recent shift card to see its customer, vehicle, loading time, duration and remarks
+- **Overview details:** tap a recent shift card to see vehicle details, add a late vehicle to that same shift even after finishing it, or edit the shift details. Use Reports → Details / edit to open older shifts too.
+- **Edit saved vehicle:** use Edit this vehicle in shift details; customer, vehicle number/type, loading times and remarks can be updated. Loading duration recalculates automatically.
 - **One shift, many vehicles:** enter date, shift, incharge and helper count once; after the first save, keep adding vehicles to that active shift. Use **Finish shift** before starting another shift.
 - **Product stage-gap report:** invoice/product rows from `STAGE_TIME`, including OQC, loading, invoice and gate-out timestamps with all three gap columns
 - **PDF:** print/save layout follows the supplied second screenshot. It prints Date through OQC End plus GAP-1, GAP-2 and GAP-3; the detailed loading, invoice and gate-out timestamps remain visible in the on-screen report.
