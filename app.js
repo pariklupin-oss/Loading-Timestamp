@@ -14,6 +14,7 @@
   if (!Array.isArray(state.inchargeNames)) state.inchargeNames = [];
   const apiUrl = String(window.LOADING_API_URL || '').trim();
   let currentDetailLoadingId = null;
+  let currentDetailHeaderIds = [];
   let editingItemId = null;
   let editingHeaderId = null;
 
@@ -140,6 +141,19 @@
     const headers = new Map(state.headers.map(h => [h.id, h]));
     return state.items.map(item => ({ ...item, header: headers.get(item.loadingId) })).filter(row => row.header);
   }
+  function shiftGroupKey(header) {
+    return `${header.date}|${String(header.shift || '').trim().toUpperCase()}|${displayIncharge(header.incharge).trim().toUpperCase()}`;
+  }
+  function groupedShifts() {
+    const sorted = [...state.headers].sort((a, b) => `${b.date}${b.createdAt || ''}`.localeCompare(`${a.date}${a.createdAt || ''}`));
+    const groups = new Map();
+    sorted.forEach(header => {
+      const key = shiftGroupKey(header);
+      if (!groups.has(key)) groups.set(key, { key, header, headers: [] });
+      groups.get(key).headers.push(header);
+    });
+    return [...groups.values()];
+  }
   function fmtDate(value) { if (!value) return '—'; return new Date(`${value}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); }
   function renderHome() {
     $('#todayLabel').textContent = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase();
@@ -147,23 +161,28 @@
     const metrics = [
       ['Vehicles today', todays.length, 'Vehicles logged', '▣'],
       ['Loading hours today', durationText(todayHours), 'Total recorded time', '◷'],
-      ['Shift entries today', new Set(todays.map(r => r.loadingId)).size, 'Day and night shifts', '◫'],
+      ['Shift entries today', new Set(todays.map(r => shiftGroupKey(r.header))).size, 'Day and night shifts', '◫'],
       ['All-time entries', state.items.length, 'Vehicle records saved', '↗']
     ];
     $('#metrics').innerHTML = metrics.map(([label, value, hint, icon]) => `<article class="metric-card"><div class="metric-top">${label}<span class="metric-icon">${icon}</span></div><div class="metric-value">${value}</div><div class="metric-hint">${hint}</div></article>`).join('');
     const activeCard = $('#activeShiftCard');
     if (state.activeShift) {
-      const shift = state.activeShift, count = state.items.filter(item => item.loadingId === shift.id).length;
+      const shift = state.activeShift, group = groupedShifts().find(row => row.key === shiftGroupKey(shift));
+      const ids = new Set((group?.headers || [shift]).map(row => row.id));
+      const count = state.items.filter(item => ids.has(item.loadingId)).length;
       $('#activeShiftLabel').textContent = `${displayIncharge(shift.incharge)} · ${String(shift.shift).toUpperCase()} SHIFT · ${fmtDate(shift.date)}`;
       $('#activeShiftCount').textContent = `${count} vehicle${count === 1 ? '' : 's'} saved · ${shift.helperCount} helpers`;
       activeCard.classList.remove('hidden');
     } else activeCard.classList.add('hidden');
-    const latest = [...state.headers].sort((a, b) => `${b.date}${b.createdAt}`.localeCompare(`${a.date}${a.createdAt}`)).slice(0, 6);
+    const latest = groupedShifts().slice(0, 6);
     const list = $('#recentList');
     if (!latest.length) { list.innerHTML = '<div class="empty-state">No loading entries yet. Tap <b>New loading</b> to record the first shift.</div>'; return; }
-    list.innerHTML = latest.map(h => {
-      const items = state.items.filter(i => i.loadingId === h.id), total = items.reduce((a, i) => a + (Number(i.totalHours) || 0), 0);
-      return `<article class="record-card" data-loading-id="${escapeHtml(h.id)}" role="button" tabindex="0" aria-label="View ${items.length} vehicles for ${escapeHtml(displayIncharge(h.incharge))}, ${fmtDate(h.date)}"><div class="record-date">${fmtDate(h.date)}<small>${escapeHtml(h.shift)} SHIFT · ${items.length} vehicle${items.length === 1 ? '' : 's'}</small></div><div class="record-meta">${escapeHtml(displayIncharge(h.incharge))}<small>Loading incharge</small></div><div class="record-meta">${h.helperCount} helpers<small>${durationText(total)} loading time</small></div><div class="record-count">${items.length}<small>VEHICLES · TAP FOR DETAILS</small></div></article>`;
+    list.innerHTML = latest.map(group => {
+      const h = group.header, ids = new Set(group.headers.map(row => row.id));
+      const items = state.items.filter(i => ids.has(i.loadingId)), total = items.reduce((a, i) => a + (Number(i.totalHours) || 0), 0);
+      const helperCounts = [...new Set(group.headers.map(row => Number(row.helperCount) || 0))].sort((a,b) => a-b);
+      const helpers = helperCounts.length > 1 ? `${helperCounts[0]}–${helperCounts.at(-1)} helpers` : `${helperCounts[0] || 0} helpers`;
+      return `<article class="record-card" data-loading-id="${escapeHtml(h.id)}" role="button" tabindex="0" aria-label="View ${items.length} vehicles for ${escapeHtml(displayIncharge(h.incharge))}, ${fmtDate(h.date)}"><div class="record-date">${fmtDate(h.date)}<small>${escapeHtml(h.shift)} SHIFT · ${items.length} vehicle${items.length === 1 ? '' : 's'}</small></div><div class="record-meta">${escapeHtml(displayIncharge(h.incharge))}<small>Loading incharge</small></div><div class="record-meta">${helpers}<small>${durationText(total)} loading time</small></div><div class="record-count">${items.length}<small>VEHICLES · TAP FOR DETAILS</small></div></article>`;
     }).join('');
     $$('.record-card[data-loading-id]', list).forEach(card => {
       const open = () => showLoadingDetails(card.dataset.loadingId);
@@ -174,12 +193,16 @@
   function showLoadingDetails(id) {
     const header = state.headers.find(row => row.id === id);
     if (!header) return;
-    const vehicles = state.items.filter(item => item.loadingId === id);
+    const groupHeaders = state.headers.filter(row => shiftGroupKey(row) === shiftGroupKey(header));
+    const groupIds = new Set(groupHeaders.map(row => row.id));
+    const vehicles = state.items.filter(item => groupIds.has(item.loadingId));
     const total = vehicles.reduce((sum, item) => sum + (Number(item.totalHours) || 0), 0);
-    $('#loadingDetailsTitle').textContent = `${displayIncharge(header.incharge)} · ${fmtDate(header.date)}`;
-    $('#loadingDetailsSummary').textContent = `${String(header.shift || '').toUpperCase()} SHIFT · ${vehicles.length} vehicles · ${durationText(total)} total loading time`;
     currentDetailLoadingId = id;
-    $('#addVehicleToShiftButton').textContent = state.activeShift?.id === id ? '＋ Add another vehicle' : '＋ Add vehicle to this shift';
+    currentDetailHeaderIds = groupHeaders.map(row => row.id);
+    $('#loadingDetailsTitle').textContent = `${displayIncharge(header.incharge)} · ${fmtDate(header.date)}`;
+    $('#loadingDetailsSummary').textContent = `${String(header.shift || '').toUpperCase()} SHIFT · ${vehicles.length} vehicles · ${durationText(total)} total loading time${groupHeaders.length > 1 ? ` · ${groupHeaders.length} saved shift records combined` : ''}`;
+    const activeInGroup = groupHeaders.some(row => row.id === state.activeShift?.id);
+    $('#addVehicleToShiftButton').textContent = activeInGroup ? '＋ Add another vehicle' : '＋ Add vehicle to this shift';
     $('#loadingDetailsList').innerHTML = vehicles.length ? vehicles.map((item, index) => `<article class="loading-detail-card"><div class="loading-detail-head"><strong>Vehicle ${index + 1}</strong><b>${escapeHtml(item.vehicleNo || '—')}</b></div><div class="loading-detail-customer">${escapeHtml(item.customer || '—')}</div><div class="loading-detail-grid"><span>Type<strong>${escapeHtml(item.vehicleFeet || '—')}</strong></span><span>Loading start<strong>${escapeHtml(item.start || '—')}</strong></span><span>Loading end<strong>${escapeHtml(item.end || '—')}</strong></span><span>Duration<strong>${durationText(Number(item.totalHours))}</strong></span></div>${item.remarks ? `<p class="loading-detail-remarks">Remarks: ${escapeHtml(item.remarks)}</p>` : ''}<button class="secondary-button edit-vehicle-button" type="button" data-item-id="${escapeHtml(item.id)}">Edit this vehicle</button></article>`).join('') : '<div class="empty-state">No vehicle details saved for this shift.</div>';
     $$('.edit-vehicle-button', $('#loadingDetailsList')).forEach(button => button.addEventListener('click', () => openEditVehicle(button.dataset.itemId)));
     $('#loadingDetailsDialog').showModal();
@@ -191,7 +214,7 @@
   function renderReports() {
     const rows = filteredRows();
     const hours = rows.reduce((a, r) => a + (Number(r.totalHours) || 0), 0);
-    $('#reportSummary').textContent = `${rows.length} vehicle${rows.length === 1 ? '' : 's'} · ${new Set(rows.map(r => r.loadingId)).size} shift entries · ${durationText(hours)} total loading time`;
+    $('#reportSummary').textContent = `${rows.length} vehicle${rows.length === 1 ? '' : 's'} · ${new Set(rows.map(r => shiftGroupKey(r.header))).size} shift entries · ${durationText(hours)} total loading time`;
     $('#reportRows').innerHTML = rows.map(r => `<tr><td>${fmtDate(r.header.date)}<br><span class="muted">${escapeHtml(r.header.shift)}</span></td><td>${escapeHtml(displayIncharge(r.header.incharge))}</td><td>${escapeHtml(r.customer)}</td><td>${escapeHtml(r.start)}</td><td>${escapeHtml(r.end)}</td><td>${durationText(Number(r.totalHours))}</td><td>${escapeHtml(r.vehicleNo)}</td><td>${escapeHtml(r.vehicleFeet || '—')}</td><td>${r.header.helperCount}</td><td>${escapeHtml(r.remarks || '—')}</td><td><button class="table-edit-button" type="button" data-loading-id="${escapeHtml(r.loadingId)}">Details / edit</button></td></tr>`).join('');
     $$('.table-edit-button', $('#reportRows')).forEach(button => button.addEventListener('click', () => showLoadingDetails(button.dataset.loadingId)));
     $('#reportEmpty').classList.toggle('hidden', rows.length > 0);
@@ -259,22 +282,25 @@
     if (!header) return showToast('Shift entry nahi mili.');
     const updated = { ...header, date: $('#editShiftDate').value, shift: $('#editShiftName').value, incharge: $('#editShiftIncharge').value.trim(), helperCount: Number($('#editShiftHelpers').value) };
     if (!updated.date || !updated.shift || !updated.incharge || updated.helperCount < 0) return showToast('Shift ki required details fill karein.');
+    const affectedIds = currentDetailHeaderIds.length ? currentDetailHeaderIds : [header.id];
+    const originalHeaders = affectedIds.map(id => state.headers.find(row => row.id === id)).filter(Boolean);
+    const updates = originalHeaders.map(row => ({ ...row, date: updated.date, shift: updated.shift, incharge: updated.incharge, helperCount: updated.helperCount }));
     const submit = $('#editShiftForm button[type="submit"]'); submit.disabled = true;
     let synced = !apiUrl;
     try {
       if (apiUrl) {
-        await fetch(apiUrl, { method: 'POST', mode: 'no-cors', credentials: 'include', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify({ action: 'save', header: updated, items: [] }) });
+        for (const row of updates) await fetch(apiUrl, { method: 'POST', mode: 'no-cors', credentials: 'include', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify({ action: 'save', header: row, items: [] }) });
         const remote = await loadSheetData();
-        const saved = (remote.headers || []).find(row => row.id === updated.id);
-        if (!saved || saved.date !== updated.date || String(saved.shift).toUpperCase() !== updated.shift || displayIncharge(saved.incharge).toUpperCase() !== displayIncharge(updated.incharge).toUpperCase() || Number(saved.helperCount) !== updated.helperCount) throw new Error('Edited shift could not be confirmed in the Sheet.');
+        const savedHeaders = (remote.headers || []).filter(row => affectedIds.includes(row.id));
+        if (savedHeaders.length !== updates.length || savedHeaders.some(saved => saved.date !== updated.date || String(saved.shift).toUpperCase() !== updated.shift || displayIncharge(saved.incharge).toUpperCase() !== displayIncharge(updated.incharge).toUpperCase() || Number(saved.helperCount) !== updated.helperCount)) throw new Error('Edited shift could not be confirmed in the Sheet.');
         state.headers = remote.headers || []; state.items = remote.items || []; state.stageRows = remote.stageRows || [];
         synced = true;
-      } else state.headers[state.headers.findIndex(row => row.id === updated.id)] = updated;
+      } else updates.forEach(row => { state.headers[state.headers.findIndex(existing => existing.id === row.id)] = row; });
     } catch (error) {
-      state.headers[state.headers.findIndex(row => row.id === updated.id)] = updated;
+      updates.forEach(row => { state.headers[state.headers.findIndex(existing => existing.id === row.id)] = row; });
       setStorageStatus('Edit could not be confirmed in Google Sheet.', `${error.message} Shift changes are saved only in this browser.`);
     }
-    if (state.activeShift?.id === updated.id) state.activeShift = updated;
+    if (state.activeShift && affectedIds.includes(state.activeShift.id)) state.activeShift = updates.find(row => row.id === state.activeShift.id) || updated;
     state.inchargeNames = [...new Set([...(state.inchargeNames || []), displayIncharge(updated.incharge)])];
     persist(); refreshInchargeOptions(); renderHome(); renderReports();
     $('#editShiftDialog').close();
@@ -356,8 +382,9 @@
   $('#addVehicleToShiftButton').addEventListener('click', () => {
     const header = state.headers.find(row => row.id === currentDetailLoadingId);
     if (!header) return showToast('Shift entry nahi mili.');
-    if (state.activeShift && state.activeShift.id !== header.id && !confirm('Aap ek purani shift mein vehicle add kar rahe hain. Maujooda active shift ki entries saved rahengi; continue karein?')) return;
-    state.activeShift = header; persist(); $('#loadingDetailsDialog').close(); openNew();
+    const sameGroup = state.activeShift && currentDetailHeaderIds.includes(state.activeShift.id);
+    if (state.activeShift && !sameGroup && !confirm('Aap ek purani shift mein vehicle add kar rahe hain. Maujooda active shift ki entries saved rahengi; continue karein?')) return;
+    state.activeShift = sameGroup ? state.activeShift : header; persist(); $('#loadingDetailsDialog').close(); openNew();
   });
   $('#editShiftDetailsButton').addEventListener('click', openEditShift);
   $('#editVehicleForm').addEventListener('submit', saveEditedVehicle);
