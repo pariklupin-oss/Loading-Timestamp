@@ -5,6 +5,7 @@ Mobile-first loading register based on the columns in the provided workbook:
 - **Shift details:** Date, Shift, Loading Incharge, Helper Count
 - **Incharge names:** the default selection uses AJAY in place of AJEET; use **＋ Add** beside the field for a new name. A new name is stored locally right away and becomes available to other connected devices after the first loading entry with that name is saved to the Google Sheet.
 - **Vehicle details:** Customer, Loading Start, Loading End, Total Hours, Vehicle No, Vehicle Feet / Type, Remarks
+- **Customer search:** type in the Customer field to find and select a name from the connected `CUSTOMER_MASTER` list. A new customer name can also be typed if it is not listed. The attached file's 251 unique names are in the source sheet's `CUSTOMER_MASTER` tab.
 - **Reports:** date, shift and incharge filters; CSV download
 - **Operator shift cards:** the overview combines repeated records for the same incharge, date and shift into one card. Tap it to see all associated vehicles, add a late vehicle even after finishing the shift, or edit the shift details. Use Reports → Details / edit to open older shifts too.
 - **Edit saved vehicle:** use Edit this vehicle in shift details; customer, vehicle number/type, loading times and remarks can be updated. Loading duration recalculates automatically.
@@ -34,12 +35,12 @@ Then open `http://localhost:8000`.
 The app starts in local-only mode. To enable shared data, add the included `apps-script/LoadingWebAppConnector.gs` to the existing Apps Script project bound to the Google Sheet that contains `LOADING_HEADER`, `LOADING_ITEMS`, and `STAGE_TIME`.
 
 1. Open the Google Sheet and choose **Extensions → Apps Script**.
-2. Keep your existing script functions, including `copyItemMasterData()` and `copyAllOQCData()`. In Apps Script, add a new script file named `LoadingWebAppConnector` and paste the contents of `apps-script/LoadingWebAppConnector.gs` into it. Do not replace or delete your current functions.
-3. Choose **Deploy → New deployment → Web app**. Set **Execute as** to **User accessing the web app**. Restrict access to your Google Workspace if that option is available; otherwise allow only signed-in Google account users. Operators must be signed in and have edit access to the source sheet.
-4. Copy the deployed web app URL into `config.js` as the value of `window.LOADING_API_URL`.
-5. Commit the updated `config.js` to the GitHub repository and wait for Pages to redeploy. Open the app while signed in to Google. The status banner changes after the sheet records load successfully.
+2. Keep your existing script functions, including `copyItemMasterData()` and `copyAllOQCData()`. Replace only the contents of the `LoadingWebAppConnector` script file with `apps-script/LoadingWebAppConnector.gs`. Do not replace or delete your other functions.
+3. In the existing `LOADING TIMESTAMP` spreadsheet, confirm `CUSTOMER_MASTER` has a `Customer Name` header in A1 and names below it. This app bundle's connector reads that tab and returns its names to the searchable Customer field.
+4. Choose **Deploy → Manage deployments**, edit the current web app deployment, select **New version**, and deploy. Set **Execute as** to **User accessing the web app**. Restrict access to your Google Workspace if available; otherwise allow only signed-in Google account users. Operators must be signed in and have edit access to the source sheet.
+5. Keep the web app URL already set in `config.js` (or update it if the deployment URL changed), then commit the app files to the GitHub repository and wait for Pages to redeploy. Open the app while signed in to Google. The Customer field will show suggestions as the operator types.
 
-The app checks the existing tab names and columns before reading or writing. It writes to `LOADING_HEADER` and `LOADING_ITEMS`, using the workbook's existing field names. The script does not create or rename tabs. Do not deploy this script with public anonymous access: it can read and write loading records in the connected spreadsheet.
+The app checks required tab names and columns before reading or writing. It writes to `LOADING_HEADER` and `LOADING_ITEMS`, using the workbook's existing field names, and reads the private `CUSTOMER_MASTER` list. The connector does not create or rename spreadsheet tabs. Do not deploy this script with public anonymous access: it can read and write loading records in the connected spreadsheet.
 
 Until the API URL is set and a sheet load succeeds, entries remain in browser local storage on that device. Use **Backup and restore → Download backup** regularly. The app bundle contains no customer or production records. Loading hours are calculated from start and end time; when end time is earlier than start time, the app treats it as the next day.
 

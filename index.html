@@ -111,7 +111,7 @@
       <form method="dialog" class="dialog-close-row"><button class="icon-button" aria-label="Close">×</button></form>
       <p class="eyebrow">EDIT VEHICLE</p><h2>Edit vehicle entry</h2>
       <form id="editVehicleForm" class="edit-form">
-        <label>Customer<input id="editCustomer" required /></label>
+        <label>Customer<input id="editCustomer" list="customerOptions" placeholder="Search or enter customer name" autocomplete="off" required /><small class="customer-search-hint">Type to search the customer list</small></label>
         <label>Vehicle number<input id="editVehicleNo" required /></label>
         <label>Vehicle feet / type<input id="editVehicleFeet" /></label>
         <div class="edit-field-row"><label>Loading start<input id="editStart" type="time" required /></label><label>Loading end<input id="editEnd" type="time" required /></label></div>
@@ -132,6 +132,7 @@
         <div class="dialog-actions"><button class="secondary-button" id="cancelEditShift" type="button">Cancel</button><button class="primary-button" type="submit">Save shift changes</button></div>
       </form>
     </dialog>
+    <datalist id="customerOptions"></datalist>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="config.js"></script>
     <script src="app.js" defer></script>

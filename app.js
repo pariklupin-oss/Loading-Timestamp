@@ -12,6 +12,7 @@
   if (!Array.isArray(state.headers) || !Array.isArray(state.items)) state = { headers: [], items: [], stageRows: [] };
   if (!Array.isArray(state.stageRows)) state.stageRows = [];
   if (!Array.isArray(state.inchargeNames)) state.inchargeNames = [];
+  if (!Array.isArray(state.customerNames)) state.customerNames = [];
   const apiUrl = String(window.LOADING_API_URL || '').trim();
   let currentDetailLoadingId = null;
   let currentDetailHeaderIds = [];
@@ -27,6 +28,16 @@
   }
   function refreshInchargeOptions() {
     $('#inchargeOptions').innerHTML = inchargeNames().map(name => `<option value="${escapeHtml(name)}"></option>`).join('');
+  }
+  function customerNames() {
+    const all = [...state.customerNames, ...state.items.map(row => row.customer), ...state.stageRows.map(row => row.customerName)];
+    const unique = new Map();
+    all.forEach(name => { const clean = String(name || '').trim().replace(/\s+/g, ' '); const key = clean.toLocaleLowerCase(); if (clean && !unique.has(key)) unique.set(key, clean); });
+    return [...unique.values()].sort((a,b) => a.localeCompare(b));
+  }
+  function refreshCustomerOptions() {
+    const options = $('#customerOptions');
+    if (options) options.innerHTML = customerNames().map(name => `<option value="${escapeHtml(name)}"></option>`).join('');
   }
   function setStorageStatus(title, detail) {
     const note = $('#storageNote');
@@ -53,10 +64,11 @@
     try {
       const data = await loadSheetData();
       const savedNames = state.inchargeNames || [];
-      state = { headers: data.headers || [], items: data.items || [], stageRows: data.stageRows || [], inchargeNames: savedNames, activeShift: state.activeShift || null };
+      state = { headers: data.headers || [], items: data.items || [], stageRows: data.stageRows || [], customerNames: Array.isArray(data.customerNames) ? data.customerNames : state.customerNames, inchargeNames: savedNames, activeShift: state.activeShift || null };
       persist(); renderHome();
       refreshInchargeOptions();
-      setStorageStatus('Connected to Google Sheet.', 'Loading entries sync through the source sheet across authorized devices.');
+      refreshCustomerOptions();
+      setStorageStatus('Connected to Google Sheet.', state.customerNames.length ? `${state.customerNames.length} customer names ready. Type in Customer to search and select.` : 'Update the Apps Script connector to load names from CUSTOMER_MASTER.');
     } catch (error) {
       setStorageStatus('Google Sheet sync is unavailable.', `${error.message} Entries currently stay in this browser.`);
     }
@@ -88,7 +100,7 @@
     row.className = 'vehicle-row';
     row.innerHTML = `<div class="vehicle-row-head"><strong>Vehicle ${index}</strong><button class="remove-row" type="button">Remove</button></div>
       <div class="vehicle-fields">
-        <label>Customer<input class="customer" list="customerOptions" placeholder="Customer name" value="${escapeHtml(data.customer)}" required /></label>
+        <label>Customer<input class="customer" list="customerOptions" placeholder="Search or enter customer name" value="${escapeHtml(data.customer)}" autocomplete="off" required /><small class="customer-search-hint">Type to search the customer list</small></label>
         <label>Vehicle number<input class="vehicle" placeholder="KA 00 AA 0000" value="${escapeHtml(data.vehicleNo)}" required /></label>
         <label>Vehicle feet / type<input class="feet" list="feetOptions" placeholder="22 FEET" value="${escapeHtml(data.vehicleFeet)}" /></label>
         <label>Loading start<input class="start" type="time" value="${escapeHtml(data.start)}" required /></label>
@@ -226,6 +238,7 @@
     if (!item) return showToast('Vehicle entry nahi mili.');
     editingItemId = id;
     $('#editCustomer').value = item.customer || '';
+    refreshCustomerOptions();
     $('#editVehicleNo').value = item.vehicleNo || '';
     $('#editVehicleFeet').value = item.vehicleFeet || '';
     $('#editStart').value = item.start || '';
@@ -270,7 +283,7 @@
       state.items[index] = updated;
       setStorageStatus('Edit could not be confirmed in Google Sheet.', `${error.message} The edited entry is saved only in this browser.`);
     }
-    persist(); renderHome(); renderReports();
+    persist(); refreshCustomerOptions(); renderHome(); renderReports();
     $('#editVehicleDialog').close();
     if (currentDetailLoadingId) showLoadingDetails(currentDetailLoadingId);
     showToast(synced ? 'Vehicle entry updated.' : 'Updated on this device only; Sheet sync needs checking.');
@@ -356,22 +369,23 @@
         const remote = await loadSheetData();
         const savedItems = new Set((remote.items || []).map(row => row.id));
         if (!remote.headers.some(row => row.id === header.id) || items.some(item => !savedItems.has(item.id))) throw new Error('The vehicle entry was not found in the sheet after saving.');
-        state = { headers: remote.headers || [], items: remote.items || [], stageRows: remote.stageRows || [], inchargeNames: [...new Set([...(state.inchargeNames || []), incharge])], activeShift: header };
+        state = { headers: remote.headers || [], items: remote.items || [], stageRows: remote.stageRows || [], customerNames: Array.isArray(remote.customerNames) ? remote.customerNames : state.customerNames, inchargeNames: [...new Set([...(state.inchargeNames || []), incharge])], activeShift: header };
         persist(); renderHome();
         refreshInchargeOptions();
+        refreshCustomerOptions();
         setStorageStatus('Connected to Google Sheet.', 'Loading entries sync through the source sheet across authorized devices.');
         $('#vehicleRows').replaceChildren(); addVehicleRow(); setActiveShiftMode(true); showToast('Vehicle saved to the Google Sheet. Add the next vehicle.');
       } catch (error) {
         if (!state.headers.some(row => row.id === header.id)) state.headers.push(header);
         const existingIds = new Set(state.items.map(row => row.id)); state.items.push(...items.filter(item => !existingIds.has(item.id)));
-        state.inchargeNames = [...new Set([...(state.inchargeNames || []), incharge])]; state.activeShift = header; persist(); renderHome();
+        state.inchargeNames = [...new Set([...(state.inchargeNames || []), incharge])]; state.activeShift = header; persist(); renderHome(); refreshCustomerOptions();
         setStorageStatus('Google Sheet save could not be confirmed.', `${error.message} This entry is saved only in this browser. Download a backup and check the connection.`);
         $('#vehicleRows').replaceChildren(); addVehicleRow(); setActiveShiftMode(true); showToast('Saved on this device only. Continue adding vehicles; check Sheet sync later.');
       } finally { saveButton.disabled = false; }
       return;
     }
     if (!state.headers.some(row => row.id === header.id)) state.headers.push(header);
-    state.items.push(...items); state.inchargeNames = [...new Set([...(state.inchargeNames || []), incharge])]; state.activeShift = header; persist(); renderHome();
+    state.items.push(...items); state.inchargeNames = [...new Set([...(state.inchargeNames || []), incharge])]; state.activeShift = header; persist(); renderHome(); refreshCustomerOptions();
     $('#vehicleRows').replaceChildren(); addVehicleRow(); setActiveShiftMode(true); showToast('Vehicle saved. Add the next vehicle; shift details are saved.');
     saveButton.disabled = false;
   }
@@ -424,10 +438,10 @@
       if (!Array.isArray(imported.headers) || !Array.isArray(imported.items) || imported.headers.some(h => !h.id || !h.date || !h.shift) || imported.items.some(i => !i.id || !i.loadingId || !i.vehicleNo)) throw new Error('The file does not have the expected loading log format.');
       const replace = confirm(`Replace the ${state.items.length} records saved in this browser with ${imported.items.length} records from the backup?`);
       if (!replace) return;
-      state = { headers: imported.headers, items: imported.items, stageRows: imported.stageRows || [], inchargeNames: imported.inchargeNames || [] }; persist(); renderHome(); $('#backupStatus').textContent = 'Backup restored.'; showToast('Backup restored successfully.');
+      state = { headers: imported.headers, items: imported.items, stageRows: imported.stageRows || [], customerNames: imported.customerNames || [], inchargeNames: imported.inchargeNames || [] }; persist(); refreshCustomerOptions(); renderHome(); $('#backupStatus').textContent = 'Backup restored.'; showToast('Backup restored successfully.');
     } catch (error) { $('#backupStatus').textContent = error.message || 'Could not read backup.'; }
     event.target.value = '';
   });
-  $('#loadingDate').value = todayISO(); addVehicleRow(); renderHome();
+  $('#loadingDate').value = todayISO(); addVehicleRow(); refreshCustomerOptions(); renderHome();
   if (apiUrl) syncFromSheet(); else setStorageStatus('Google Sheet sync is not configured.', 'Records are saved in this browser until the sheet connector is set up.');
 })();
