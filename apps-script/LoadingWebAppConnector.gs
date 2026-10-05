@@ -3,7 +3,7 @@
  * Bind this script to the spreadsheet with LOADING_HEADER and LOADING_ITEMS,
  * then deploy as a web app that runs as the signed-in user accessing it.
  */
-const LOADING_WEB_TABLES = {
+const LOADING_LOG_WEB_TABLES = {
   header: {
     sheet: 'LOADING_HEADER',
     fields: ['LOADING_ID', 'DATE', 'SHIFT', 'LOADING INCHARGE', 'HELPER COUNT']
@@ -49,11 +49,11 @@ function loadingWebLoad_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!ss) throw new Error('Bind this script to the LOADING TIMESTAMP Google Sheet first.');
   const tz = ss.getSpreadsheetTimeZone();
-  const headerSheet = loadingWebRequireTable_(ss, LOADING_WEB_TABLES.header);
-  const itemSheet = loadingWebRequireTable_(ss, LOADING_WEB_TABLES.item);
-  const stageSheet = loadingWebRequireTable_(ss, LOADING_WEB_TABLES.stage);
+  const headerSheet = loadingWebRequireTable_(ss, LOADING_LOG_WEB_TABLES.header);
+  const itemSheet = loadingWebRequireTable_(ss, LOADING_LOG_WEB_TABLES.item);
+  const stageSheet = loadingWebRequireTable_(ss, LOADING_LOG_WEB_TABLES.stage);
   const customerSheet = ss.getSheetByName('CUSTOMER_MASTER');
-  const headers = loadingWebReadRows_(headerSheet, LOADING_WEB_TABLES.header, tz).map(r => ({
+  const headers = loadingWebReadRows_(headerSheet, LOADING_LOG_WEB_TABLES.header, tz).map(r => ({
     id: r.LOADING_ID,
     date: r.DATE,
     shift: r.SHIFT,
@@ -61,7 +61,7 @@ function loadingWebLoad_() {
     helperCount: Number(r['HELPER COUNT']) || 0,
     createdAt: r.DATE
   })).filter(r => r.id);
-  const items = loadingWebReadRows_(itemSheet, LOADING_WEB_TABLES.item, tz).map(r => ({
+  const items = loadingWebReadRows_(itemSheet, LOADING_LOG_WEB_TABLES.item, tz).map(r => ({
     id: r.ITEM_ID,
     loadingId: r.LOADING_ID,
     customer: r.Customer,
@@ -72,7 +72,7 @@ function loadingWebLoad_() {
     vehicleFeet: r['VEHICL FEET'],
     remarks: r.Remarks
   })).filter(r => r.id && r.loadingId);
-  const stageRows = loadingWebReadRows_(stageSheet, LOADING_WEB_TABLES.stage, tz).map(r => ({
+  const stageRows = loadingWebReadRows_(stageSheet, LOADING_LOG_WEB_TABLES.stage, tz).map(r => ({
     date: r.Date,
     customerName: r['Customer Name'],
     itemName: r['Item Name'],
@@ -95,8 +95,8 @@ function loadingWebLoad_() {
 function loadingWebSave_(body) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!ss) throw new Error('Bind this script to the LOADING TIMESTAMP Google Sheet first.');
-  const headerSheet = loadingWebRequireTable_(ss, LOADING_WEB_TABLES.header);
-  const itemSheet = loadingWebRequireTable_(ss, LOADING_WEB_TABLES.item);
+  const headerSheet = loadingWebRequireTable_(ss, LOADING_LOG_WEB_TABLES.header);
+  const itemSheet = loadingWebRequireTable_(ss, LOADING_LOG_WEB_TABLES.item);
   const h = body.header;
   if (!h.id || !h.date || !h.shift || !h.incharge) throw new Error('Required shift fields are missing.');
   const headerValues = {
@@ -106,7 +106,7 @@ function loadingWebSave_(body) {
     'LOADING INCHARGE': String(h.incharge),
     'HELPER COUNT': Number(h.helperCount) || 0
   };
-  loadingWebWriteByKey_(headerSheet, LOADING_WEB_TABLES.header, headerValues, 'LOADING_ID');
+  loadingWebWriteByKey_(headerSheet, LOADING_LOG_WEB_TABLES.header, headerValues, 'LOADING_ID');
   body.items.forEach(item => {
     if (!item.id || !item.vehicleNo || !item.customer || !item.start || !item.end) throw new Error('A vehicle row is missing a required value.');
     const values = {
@@ -120,7 +120,7 @@ function loadingWebSave_(body) {
       'VEHICL FEET': String(item.vehicleFeet || ''),
       Remarks: String(item.remarks || '')
     };
-    loadingWebWriteByKey_(itemSheet, LOADING_WEB_TABLES.item, values, 'ITEM_ID');
+    loadingWebWriteByKey_(itemSheet, LOADING_LOG_WEB_TABLES.item, values, 'ITEM_ID');
   });
 }
 
