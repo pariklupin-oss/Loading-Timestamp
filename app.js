@@ -20,6 +20,32 @@
   let editingHeaderId = null;
 
   function persist() { localStorage.setItem(KEY, JSON.stringify(state)); }
+  function mergeById(localRows, remoteRows) {
+    const merged = new Map();
+    (localRows || []).forEach(row => { if (row && row.id) merged.set(String(row.id), row); });
+    (remoteRows || []).forEach(row => {
+      if (!row || !row.id) return;
+      const id = String(row.id);
+      merged.set(id, { ...(merged.get(id) || {}), ...row });
+    });
+    return [...merged.values()];
+  }
+  function mergeSheetData(data) {
+    const local = state;
+    const stageKey = row => [row.date, row.invoiceNumber, row.itemCode, row.itemName].map(value => String(value || '').trim().toLowerCase()).join('|');
+    const stageRows = new Map();
+    (local.stageRows || []).forEach(row => stageRows.set(stageKey(row), row));
+    (data.stageRows || []).forEach(row => stageRows.set(stageKey(row), { ...(stageRows.get(stageKey(row)) || {}), ...row }));
+    state = {
+      ...local,
+      headers: mergeById(local.headers, data.headers),
+      items: mergeById(local.items, data.items),
+      stageRows: [...stageRows.values()],
+      customerNames: [...new Map([...(local.customerNames || []), ...(data.customerNames || [])].map(name => [String(name).trim().toLowerCase(), String(name).trim()])).values()].filter(Boolean),
+      activeShift: local.activeShift || null
+    };
+    return state;
+  }
   function inchargeNames() {
     const all = [...DEFAULT_INCHARGES, ...state.inchargeNames, ...state.headers.map(h => h.incharge).filter(Boolean)];
     const unique = new Map();
@@ -64,7 +90,8 @@
     try {
       const data = await loadSheetData();
       const savedNames = state.inchargeNames || [];
-      state = { headers: data.headers || [], items: data.items || [], stageRows: data.stageRows || [], customerNames: Array.isArray(data.customerNames) ? data.customerNames : state.customerNames, inchargeNames: savedNames, activeShift: state.activeShift || null };
+      mergeSheetData(data);
+      state.inchargeNames = savedNames;
       persist(); renderHome();
       refreshInchargeOptions();
       refreshCustomerOptions();
@@ -276,7 +303,7 @@
         const remote = await loadSheetData();
         const saved = (remote.items || []).find(row => row.id === updated.id);
         if (!saved || saved.vehicleNo !== updated.vehicleNo || saved.start !== updated.start || saved.end !== updated.end || saved.customer !== updated.customer) throw new Error('Edited entry could not be confirmed in the Sheet.');
-        state = { ...state, headers: remote.headers || [], items: remote.items || [], stageRows: remote.stageRows || [] };
+        mergeSheetData(remote);
         synced = true;
       } else state.items[index] = updated;
     } catch (error) {
@@ -306,7 +333,7 @@
         const remote = await loadSheetData();
         const savedHeaders = (remote.headers || []).filter(row => affectedIds.includes(row.id));
         if (savedHeaders.length !== updates.length || savedHeaders.some(saved => saved.date !== updated.date || String(saved.shift).toUpperCase() !== updated.shift || displayIncharge(saved.incharge).toUpperCase() !== displayIncharge(updated.incharge).toUpperCase() || Number(saved.helperCount) !== updated.helperCount)) throw new Error('Edited shift could not be confirmed in the Sheet.');
-        state.headers = remote.headers || []; state.items = remote.items || []; state.stageRows = remote.stageRows || [];
+        mergeSheetData(remote);
         synced = true;
       } else updates.forEach(row => { state.headers[state.headers.findIndex(existing => existing.id === row.id)] = row; });
     } catch (error) {
@@ -360,32 +387,36 @@
     if ((!continuing && (!date || !shift || !incharge || helperCount < 0)) || rows.some(r => !r.customer || !r.vehicleNo || !r.start || !r.end)) return showToast('Please complete all required fields.');
     const header = state.activeShift || { id: uid(), date, shift, incharge, helperCount, createdAt: new Date().toISOString() };
     const items = rows.map(r => ({ id: uid(), loadingId: header.id, ...r, totalHours: Number(hoursBetween(r.start,r.end).toFixed(2)) }));
+    if (!state.headers.some(row => row.id === header.id)) state.headers.push(header);
+    const existingItemIds = new Set(state.items.map(row => row.id));
+    state.items.push(...items.filter(item => !existingItemIds.has(item.id)));
+    state.inchargeNames = [...new Set([...(state.inchargeNames || []), incharge])];
+    state.activeShift = header;
+    persist();
     const saveButton = $('#loadingForm button[type="submit"]');
     saveButton.disabled = true;
     if (apiUrl) {
       setStorageStatus('Saving to Google Sheet…', 'Waiting for the sheet to confirm the entry.');
       try {
-        await fetch(apiUrl, { method: 'POST', mode: 'no-cors', credentials: 'include', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify({ action: 'save', header, items }) });
+        const shiftItems = state.items.filter(item => item.loadingId === header.id && item.customer && item.vehicleNo && item.start && item.end);
+        await fetch(apiUrl, { method: 'POST', mode: 'no-cors', credentials: 'include', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify({ action: 'save', header, items: shiftItems }) });
         const remote = await loadSheetData();
         const savedItems = new Set((remote.items || []).map(row => row.id));
-        if (!remote.headers.some(row => row.id === header.id) || items.some(item => !savedItems.has(item.id))) throw new Error('The vehicle entry was not found in the sheet after saving.');
-        state = { headers: remote.headers || [], items: remote.items || [], stageRows: remote.stageRows || [], customerNames: Array.isArray(remote.customerNames) ? remote.customerNames : state.customerNames, inchargeNames: [...new Set([...(state.inchargeNames || []), incharge])], activeShift: header };
+        if (!remote.headers.some(row => row.id === header.id) || shiftItems.some(item => !savedItems.has(item.id))) throw new Error('The vehicle entry was not found in the sheet after saving.');
+        mergeSheetData(remote);
         persist(); renderHome();
         refreshInchargeOptions();
         refreshCustomerOptions();
         setStorageStatus('Connected to Google Sheet.', 'Loading entries sync through the source sheet across authorized devices.');
         $('#vehicleRows').replaceChildren(); addVehicleRow(); setActiveShiftMode(true); showToast('Vehicle saved to the Google Sheet. Add the next vehicle.');
       } catch (error) {
-        if (!state.headers.some(row => row.id === header.id)) state.headers.push(header);
-        const existingIds = new Set(state.items.map(row => row.id)); state.items.push(...items.filter(item => !existingIds.has(item.id)));
-        state.inchargeNames = [...new Set([...(state.inchargeNames || []), incharge])]; state.activeShift = header; persist(); renderHome(); refreshCustomerOptions();
-        setStorageStatus('Google Sheet save could not be confirmed.', `${error.message} This entry is saved only in this browser. Download a backup and check the connection.`);
-        $('#vehicleRows').replaceChildren(); addVehicleRow(); setActiveShiftMode(true); showToast('Saved on this device only. Continue adding vehicles; check Sheet sync later.');
+        state.activeShift = header; persist(); renderHome(); refreshCustomerOptions();
+        setStorageStatus('Google Sheet save could not be confirmed.', `${error.message} This entry and other vehicles in this shift remain saved in this browser. The next save will retry this shift.`);
+        $('#vehicleRows').replaceChildren(); addVehicleRow(); setActiveShiftMode(true); showToast('Saved in this browser. The next save will retry this shift to Google Sheet.');
       } finally { saveButton.disabled = false; }
       return;
     }
-    if (!state.headers.some(row => row.id === header.id)) state.headers.push(header);
-    state.items.push(...items); state.inchargeNames = [...new Set([...(state.inchargeNames || []), incharge])]; state.activeShift = header; persist(); renderHome(); refreshCustomerOptions();
+    renderHome(); refreshCustomerOptions();
     $('#vehicleRows').replaceChildren(); addVehicleRow(); setActiveShiftMode(true); showToast('Vehicle saved. Add the next vehicle; shift details are saved.');
     saveButton.disabled = false;
   }
