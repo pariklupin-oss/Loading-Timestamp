@@ -66,8 +66,7 @@
     if (options) options.innerHTML = customerNames().map(name => `<option value="${escapeHtml(name)}"></option>`).join('');
   }
   function setStorageStatus(title, detail) {
-    const note = $('#storageNote');
-    if (note) note.innerHTML = `<span>ⓘ</span><div><b>${escapeHtml(title)}</b><small>${escapeHtml(detail)}</small></div>`;
+    $$('.storage-note').forEach(note => { note.innerHTML = `<span>ⓘ</span><div><b>${escapeHtml(title)}</b><small>${escapeHtml(detail)}</small></div>`; });
   }
   function loadSheetData() {
     if (!apiUrl) return Promise.reject(new Error('Google Sheet connector URL is not configured.'));
@@ -395,6 +394,7 @@
     persist();
     const saveButton = $('#loadingForm button[type="submit"]');
     saveButton.disabled = true;
+    saveButton.textContent = 'Saving…';
     if (apiUrl) {
       setStorageStatus('Saving to Google Sheet…', 'Waiting for the sheet to confirm the entry.');
       try {
@@ -413,7 +413,7 @@
         state.activeShift = header; persist(); renderHome(); refreshCustomerOptions();
         setStorageStatus('Google Sheet save could not be confirmed.', `${error.message} This entry and other vehicles in this shift remain saved in this browser. The next save will retry this shift.`);
         $('#vehicleRows').replaceChildren(); addVehicleRow(); setActiveShiftMode(true); showToast('Saved in this browser. The next save will retry this shift to Google Sheet.');
-      } finally { saveButton.disabled = false; }
+      } finally { saveButton.disabled = false; saveButton.textContent = state.activeShift ? 'Save vehicle & add next' : 'Save shift & vehicles'; }
       return;
     }
     renderHome(); refreshCustomerOptions();
