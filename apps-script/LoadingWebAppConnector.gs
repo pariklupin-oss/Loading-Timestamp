@@ -147,7 +147,9 @@ function loadingWebSave_(body) {
     'HELPER COUNT': Number(h.helperCount) || 0
   };
   loadingWebWriteByKey_(headerSheet, LOADING_LOG_WEB_TABLES.header, headerValues, 'LOADING_ID');
+  const deletedIds = new Set(loadingWebDeletedItemIds_());
   body.items.forEach(item => {
+    if (deletedIds.has(String(item.id))) return;
     if (!item.id || !item.vehicleNo || !item.customer || !item.start || !item.end) throw new Error('A vehicle row is missing a required value.');
     const values = {
       ITEM_ID: String(item.id),
@@ -155,7 +157,7 @@ function loadingWebSave_(body) {
       Customer: String(item.customer),
       'LOADING START': loadingWebTimeFraction_(item.start),
       'LOADING END': loadingWebTimeFraction_(item.end),
-      TOTAL_HRS: Number(item.totalHours) || 0,
+      TOTAL_HRS: Math.round(((loadingWebTimeFraction_(item.end) - loadingWebTimeFraction_(item.start) + 1) % 1) * 2400) / 100,
       'VEHICLE NO': String(item.vehicleNo),
       'VEHICL FEET': String(item.vehicleFeet || ''),
       Remarks: String(item.remarks || '')
@@ -187,6 +189,7 @@ function loadingWebReadRows_(sheet, definition, timezone) {
       const col = names.indexOf(field.toUpperCase());
       const value = row[col];
       if (field.toUpperCase() === 'DATE') item[field] = loadingWebNormalizeDate_(value, display[rowIndex + 1][col], timezone);
+      else if (definition.sheet === 'LOADING_ITEMS' && (field === 'LOADING START' || field === 'LOADING END')) item[field] = loadingWebNormalizeTime_(value, display[rowIndex + 1][col], timezone);
       else if (['OQC END', 'LOADING END', 'INVOICE TIME', 'GATE OUT TIME'].indexOf(field.toUpperCase()) >= 0) item[field] = loadingWebNormalizeTimestamp_(value, display[rowIndex + 1][col], timezone);
       else if (field === 'LOADING START' || field === 'LOADING END') item[field] = String(display[rowIndex + 1][col] || '').trim().slice(0, 5);
       else item[field] = value instanceof Date ? Utilities.formatDate(value, timezone, 'HH:mm:ss') : String(display[rowIndex + 1][col] || '').trim();
@@ -218,7 +221,11 @@ function loadingWebWriteByKey_(sheet, definition, values, keyName) {
 function loadingWebParseDate_(value) {
   const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) throw new Error('Date must use YYYY-MM-DD.');
-  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const y = Number(match[1]), m = Number(match[2]), d = Number(match[3]);
+  const check = new Date(Date.UTC(y, m - 1, d));
+  if (check.getUTCFullYear() !== y || check.getUTCMonth() !== m - 1 || check.getUTCDate() !== d) throw new Error('Invalid date.');
+  // Numeric spreadsheet date avoids script/spreadsheet timezone conversion.
+  return (Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 86400000;
 }
 
 function loadingWebNormalizeDate_(value, shown, timezone) {
@@ -250,4 +257,22 @@ function loadingWebTimeFraction_(value) {
 
 function loadingWebText_(value) {
   return ContentService.createTextOutput(value).setMimeType(ContentService.MimeType.TEXT);
+}
+
+
+function loadingWebNormalizeTime_(value, shown, timezone) {
+  if (typeof value === 'number') {
+    const minutes = Math.round(((value % 1 + 1) % 1) * 1440) % 1440;
+    return String(Math.floor(minutes / 60)).padStart(2, '0') + ':' + String(minutes % 60).padStart(2, '0');
+  }
+  // Time-only Dates use an 1899 base date; displayed clock avoids historical timezone offsets.
+  const text = String(shown || '').trim();
+  const match = text.match(/(?:^|[ T])(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?$/i);
+  if (match) {
+    let hour = Number(match[1]);
+    if (match[3]) hour = hour % 12 + (match[3].toUpperCase() === 'PM' ? 12 : 0);
+    if (hour < 24 && Number(match[2]) < 60) return String(hour).padStart(2, '0') + ':' + match[2];
+  }
+  if (value instanceof Date) return Utilities.formatDate(value, timezone, 'HH:mm');
+  return text;
 }
