@@ -2,7 +2,7 @@
   const KEY = 'starish.loading-log.v1';
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-  const todayISO = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
+  const todayISO = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   const DEFAULT_INCHARGES = ['AJAY', 'DILIP', 'MANTU', 'VAMSI'];
   const displayIncharge = name => String(name ?? '').trim().toUpperCase() === 'AJEET' ? 'AJAY' : String(name ?? '').trim();
   const uid = () => crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -31,7 +31,16 @@
     });
     return [...merged.values()];
   }
+  function normalizeClock(value) {
+    const match = String(value || '').trim().match(/(?:^|[ T])(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?$/i);
+    if (!match) return String(value || '');
+    let h = Number(match[1]);
+    if (match[3]) h = h % 12 + (match[3].toUpperCase() === 'PM' ? 12 : 0);
+    return h < 24 && Number(match[2]) < 60 ? String(h).padStart(2, '0') + ':' + match[2] : String(value || '');
+  }
+  state.items = state.items.map(row => ({ ...row, start: normalizeClock(row.start), end: normalizeClock(row.end) }));
   function mergeSheetData(data) {
+    data.items = (data.items || []).map(row => ({ ...row, start: normalizeClock(row.start), end: normalizeClock(row.end) }));
     const local = state;
     const deletedItemIds = [...new Set([...(local.deletedItemIds || []), ...(data.deletedItemIds || [])].map(String))];
     const deleted = new Set(deletedItemIds);
@@ -46,7 +55,7 @@
       deletedItemIds,
       stageRows: [...stageRows.values()],
       customerNames: [...new Map([...(local.customerNames || []), ...(data.customerNames || [])].map(name => [String(name).trim().toLowerCase(), String(name).trim()])).values()].filter(Boolean),
-      activeShift: local.activeShift || null
+      activeShift: local.activeShift ? (data.headers || []).find(row => row.id === local.activeShift.id) || local.activeShift : null
     };
     return state;
   }
@@ -141,7 +150,7 @@
   }
   function hoursBetween(start, end) {
     if (!start || !end) return null;
-    const [sh, sm] = start.split(':').map(Number), [eh, em] = end.split(':').map(Number);
+    const [sh, sm] = normalizeClock(start).split(':').map(Number), [eh, em] = normalizeClock(end).split(':').map(Number);
     let minutes = eh * 60 + em - (sh * 60 + sm);
     if (minutes < 0) minutes += 1440;
     return minutes / 60;
@@ -182,6 +191,9 @@
   function openNew() {
     $('#loadingForm').reset(); $('#vehicleRows').replaceChildren(); addVehicleRow();
     refreshInchargeOptions();
+    if (state.activeShift && state.activeShift.date !== todayISO()) {
+      if (!confirm(`Active shift date ${fmtDate(state.activeShift.date)} hai. Isi purani shift mein vehicle add karna hai? Cancel se aaj ki nayi shift shuru hogi.`)) { state.activeShift = null; persist(); }
+    }
     if (state.activeShift) {
       setActiveShiftMode(true);
     } else {
@@ -288,7 +300,7 @@
     $('#addVehicleToShiftButton').textContent = activeInGroup ? '＋ Add another vehicle' : '＋ Add vehicle to this shift';
     $('#loadingDetailsList').innerHTML = vehicles.length ? vehicles.map((item, index) => `<article class="loading-detail-card"><div class="loading-detail-head"><strong>Vehicle ${index + 1}</strong><b>${escapeHtml(item.vehicleNo || '—')}</b></div><div class="loading-detail-customer">${escapeHtml(item.customer || '—')}</div><div class="loading-detail-grid"><span>Type<strong>${escapeHtml(item.vehicleFeet || '—')}</strong></span><span>Loading start<strong>${escapeHtml(item.start || '—')}</strong></span><span>Loading end<strong>${escapeHtml(item.end || '—')}</strong></span><span>Duration<strong>${durationText(Number(item.totalHours))}</strong></span></div>${item.remarks ? `<p class="loading-detail-remarks">Remarks: ${escapeHtml(item.remarks)}</p>` : ''}<div class="loading-detail-actions"><button class="secondary-button edit-vehicle-button" type="button" data-item-id="${escapeHtml(item.id)}">Edit this vehicle</button><button class="delete-vehicle-button" type="button" data-item-id="${escapeHtml(item.id)}">Delete</button></div></article>`).join('') : '<div class="empty-state">No vehicle details saved for this shift.</div>';
     $$('.edit-vehicle-button', $('#loadingDetailsList')).forEach(button => button.addEventListener('click', () => openEditVehicle(button.dataset.itemId)));
-    $('#loadingDetailsDialog').showModal();
+    if (!$('#loadingDetailsDialog').open) $('#loadingDetailsDialog').showModal();
   }
   function filteredRows() {
     const from = $('#filterFrom').value, to = $('#filterTo').value, shift = $('#filterShift').value, incharge = $('#filterIncharge').value.trim().toLowerCase();
@@ -357,6 +369,7 @@
     if (!oldItem) return showToast('Vehicle entry nahi mili.');
     const updated = { ...oldItem, customer: $('#editCustomer').value.trim(), vehicleNo: $('#editVehicleNo').value.trim().toUpperCase(), vehicleFeet: $('#editVehicleFeet').value.trim().toUpperCase(), start: $('#editStart').value, end: $('#editEnd').value, remarks: $('#editRemarks').value.trim() };
     if (!updated.customer || !updated.vehicleNo || !updated.start || !updated.end) return showToast('Required fields fill karein.');
+    if (!confirmEntryTimes([updated])) return;
     updated.totalHours = Number(hoursBetween(updated.start, updated.end).toFixed(2));
     const submit = $('#editVehicleForm button[type="submit"]'); submit.disabled = true;
     let synced = !apiUrl;
@@ -440,6 +453,10 @@
     const data = rows.map(r => [r.header.date,r.header.shift,displayIncharge(r.header.incharge),r.header.helperCount,r.customer,r.start,r.end,Number(r.totalHours).toFixed(2),r.vehicleNo,r.vehicleFeet,r.remarks]);
     download(`loading-report-${todayISO()}.csv`, [headings,...data].map(row => row.map(csvCell).join(',')).join('\r\n'), 'text/csv;charset=utf-8');
   }
+  function confirmEntryTimes(rows) {
+    const suspicious = rows.filter(row => row.end < row.start || hoursBetween(row.start, row.end) > 8);
+    return !suspicious.length || confirm(suspicious.map(row => `${row.vehicleNo}: ${row.start} → ${row.end} (${durationText(hoursBetween(row.start, row.end))})`).join('\n') + '\nEnd time agle din ka hai ya duration 8 ghante se zyada hai. AM/PM aur timings check ki hain?');
+  }
   async function saveForm(event) {
     event.preventDefault();
     const continuing = Boolean(state.activeShift);
@@ -449,6 +466,7 @@
     const helperCount = continuing ? state.activeShift.helperCount : Number($('#helperCount').value);
     const rows = $$('.vehicle-row').map(row => ({ customer: $('.customer',row).value.trim(), vehicleNo: $('.vehicle',row).value.trim().toUpperCase(), vehicleFeet: $('.feet',row).value.trim().toUpperCase(), start: $('.start',row).value, end: $('.end',row).value, remarks: $('.remarks',row).value.trim() }));
     if ((!continuing && (!date || !shift || !incharge || helperCount < 0)) || rows.some(r => !r.customer || !r.vehicleNo || !r.start || !r.end)) return showToast('Please complete all required fields.');
+    if (!confirmEntryTimes(rows)) return;
     const header = state.activeShift || { id: uid(), date, shift, incharge, helperCount, createdAt: new Date().toISOString() };
     const items = rows.map(r => ({ id: uid(), loadingId: header.id, ...r, totalHours: Number(hoursBetween(r.start,r.end).toFixed(2)) }));
     if (!state.headers.some(row => row.id === header.id)) state.headers.push(header);
@@ -545,3 +563,4 @@
   $('#loadingDate').value = todayISO(); addVehicleRow(); refreshCustomerOptions(); renderHome();
   if (apiUrl) syncFromSheet(); else setStorageStatus('Google Sheet sync is not configured.', 'Records are saved in this browser until the sheet connector is set up.');
 })();
+
