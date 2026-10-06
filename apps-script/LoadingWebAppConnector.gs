@@ -54,7 +54,7 @@ function loadingWebLoad_() {
     // Split a group in the app when one row's date/shift/incharge/helpers differ.
     const id=loadingWebGroupId_(r);
     if (!headers.has(id)) headers.set(id,{id,date:r.DATE,shift:r.SHIFT,incharge:r['LOADING INCHARGE'],helperCount:Number(r['HELPER COUNT'])||0,createdAt:r.DATE});
-    items.push({id:r.ENTRY_ID,loadingId:id,customer:r.CUSTOMER,start:r['LOADING START'],end:r['LOADING END'],totalHours:Number(r.TOTAL_HRS)||0,vehicleNo:r['VEHICLE NO'],vehicleFeet:r['VEHICLE FEET'],remarks:r.REMARKS,check:r.CHECK});
+    items.push({id:r.ENTRY_ID,loadingId:id,customer:r.CUSTOMER,start:r['LOADING START'],end:r['LOADING END'],totalHours:r.TOTAL_HRS==='' ? null : Number(r.TOTAL_HRS)||0,vehicleNo:r['VEHICLE NO'],vehicleFeet:r['VEHICLE FEET'],remarks:r.REMARKS,check:r.CHECK});
   });
   const stageSheet=ss.getSheetByName('STAGE_TIME');
   const stageRows=stageSheet ? loadingWebReadRows_(stageSheet,LOADING_LOG_WEB_TABLES.stage,tz).map(r=>({date:r.Date,customerName:r['Customer Name'],itemName:r['Item Name'],itemCode:r['Item Code'],invoiceNumber:r['Invoice Number'],oqcEnd:r['OQC End'],loadingEnd:r['Loading End'],invoiceTime:r['Invoice Time'],gateOutTime:r['Gate Out Time'],gap1:r['GAP-1 (Production and Loading)'],gap2:r['GAP-2 (Loading and Billing)'],gap3:r['GAP-3 (Billing and Gate Out)']})).filter(r=>r.invoiceNumber||r.itemCode||r.itemName) : [];
@@ -101,8 +101,9 @@ function loadingWebSave_(body) {
   const deleted=new Set(loadingWebDeletedItemIds_()), stamp=Utilities.formatDate(new Date(),ss.getSpreadsheetTimeZone(),'yyyy-MM-dd HH:mm:ss');
   const last=sheet.getLastRow(), raw=last>1 ? sheet.getRange(2,1,last-1,15).getValues() : [];
   const normalized=loadingWebReadRows_(sheet,LOADING_LOG_WEB_TABLES.report,ss.getSpreadsheetTimeZone());
-  const positions=new Map(raw.map((r,i)=>[String(r[11]),i+2]));
-  if (positions.size!==raw.length) throw new Error('Duplicate ENTRY_ID in LOADING_REPORT. Correct it before saving.');
+  const entries=raw.map((r,i)=>[String(r[11]||''),i+2]).filter(pair=>pair[0]);
+  const positions=new Map(entries);
+  if (positions.size!==entries.length) throw new Error('Duplicate ENTRY_ID in LOADING_REPORT. Correct it before saving.');
   if (!body.items.length) {
     normalized.forEach((r,i)=>{ if (loadingWebGroupId_(r)===String(h.id) || r.SHIFT_ID===String(h.id)) {
       const item={id:r.ENTRY_ID,customer:r.CUSTOMER,vehicleNo:r['VEHICLE NO'],vehicleFeet:r['VEHICLE FEET'],remarks:r.REMARKS,start:r['LOADING START'],end:r['LOADING END']};
