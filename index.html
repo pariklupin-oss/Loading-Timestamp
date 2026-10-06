@@ -136,7 +136,15 @@
     <datalist id="customerOptions"></datalist>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="config.js"></script>
-    <script src="app.js" defer></script>
-    <script>if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('./sw.js').catch(() => {});</script>
+    <script src="app.js?v=15" defer></script>
+    <script>
+      if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+        let refreshed = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (!refreshed) { refreshed = true; location.reload(); }
+        });
+        navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {});
+      }
+    </script>
   </body>
 </html>
